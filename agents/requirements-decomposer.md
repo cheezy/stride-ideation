@@ -20,10 +20,18 @@ For every requirements doc you process, walk this checklist in order:
 
 3. **Enumerate tasks at ~1–3 hours of agent work each.** That sizing corresponds to Stride `"small"` complexity. If a candidate task would take more than 3 hours, split it further. Each task title follows `[Verb] [What] [Where/Context]` — e.g., `"Add user_notification_preferences schema and migration"`, not `"Notifications schema"`. The `acceptance_criteria` and `verification_steps` for each task must be specific enough that an implementing agent can complete the task without re-reading the requirements doc.
 
-4. **Choose single-goal vs multi-goal shape.**
-   - **5–8 tasks per goal is the target.** 3–5 tasks total stays as one goal; small initiatives don't need decomposition into multiple goals.
-   - **Prefer code-coupled tasks in one goal.** If the work spans clearly orthogonal seams (e.g., data layer + UI layer + email rendering, where each seam ships independently), splitting into multiple goals is appropriate.
-   - **Hard threshold: if a single goal would carry more than ~10 tasks, split at the most natural available seam.** Document the split in `decomposition_notes` and order the goals so users know which to claim first.
+4. **Choose single-goal vs multi-goal shape.** There are exactly **two reasons** to split work across multiple goals — both must be satisfied independently. Splitting for any other reason produces friction without buying ship-ability:
+
+   - **Reason 1 — code-coupling.** Tasks within a single Phoenix layer (data, context, UI, observability) are usually code-coupled and belong in one goal. Tasks that span orthogonal layers and could each ship to production independently are candidates for separate goals. If two tasks would touch overlapping files or share a schema-migration boundary, they are code-coupled and **stay together** regardless of count.
+
+   - **Reason 2 — size (~10-task soft cap).** A goal with more than ~10 tasks is too coarse for a human to claim and reason about in one sitting. When a single code-coupled cluster would exceed ~10 tasks, split at the most natural available seam **within** that cluster (typically a sub-layer boundary, e.g., schema vs. CRUD context vs. query context inside the data layer). The cap is a **guideline, not a hard rule** — a tightly code-coupled 11- or 12-task goal is fine if no clean seam exists. The layer-seam check is the real test.
+
+   **Target shape:** 5–8 tasks per goal. Initiatives of 3–5 tasks total stay as one goal even if they touch multiple layers — at that size a goal split is overhead.
+
+   **Sizing-driven splits introduce cross-goal dependencies that the Stride batch API cannot encode** (array indices reference siblings within a goal; identifier strings reference pre-existing tasks; neither form works for tasks-in-other-goals-in-the-same-batch). When a split forces a cross-goal dependency:
+   - Emit the goals in **claim order** in the `goals` array (the goal whose tasks unblock the next goal comes first).
+   - **Document the claim order in `decomposition_notes`** in plain text — e.g., *"Claim G1 (schema + migration) before G2 (LiveView UI); G2's first task depends on G1's last task landing in main."*
+   - Within each goal, tasks STILL use array-index dependencies for sibling sequencing. Cross-goal references are not encoded in `dependencies` — they live in `decomposition_notes` only.
 
 5. **Order tasks and wire dependencies.** Within a goal, tasks that build on each other use the **array-index** form: `"dependencies": [0, 1]` references the first and second tasks in the goal's `tasks` array. Across goals you cannot reference array indices — emit goals in dependency order in the `goals` array and explain the cross-goal claim order in `decomposition_notes`. To reference pre-existing tasks already in Stride (rare from a fresh requirements doc), use **string identifiers** like `["W47"]`. Mixing the two forms in the same `dependencies` array is allowed but rare.
 
@@ -220,6 +228,96 @@ Input (excerpt): a requirements doc for "notifications system" — three orthogo
 ```
 
 (Example abbreviated for prompt brevity — a real multi-goal decomposition would include 5–8 child tasks per goal. Never emit an empty `tasks` array in your real output; every goal owns at least one task.)
+
+## Example 3: 14-task sizing-driven split along a layer boundary
+
+Input (excerpt): a requirements doc for a single-feature initiative whose work, if kept in one goal, would total 14 tasks — schema + migration + data context (6 tasks), then LiveView UI + presence wiring + form components (8 tasks). The two clusters are code-coupled within themselves but the UI layer cannot start until the data layer's schema and context land in `main`.
+
+The decomposer would split at the layer seam and emit two goals in claim order. The `tasks` arrays here are abbreviated to titles + a single representative full task per goal, but a real decomposition would include all 6 + 8 tasks fully populated.
+
+```json
+{
+  "decomposition_notes": "Sizing-driven split: a single goal would have carried 14 tasks (6 data-layer + 8 UI-layer), well past the ~10-task soft cap. Split at the layer seam — G1 owns schema + migration + data-layer context functions; G2 owns the LiveView UI + presence wiring + form components. CROSS-GOAL DEPENDENCY: claim G1 first and let its final task ('Expose query functions through MyApp.Notifications context') land in main before claiming G2. G2's first task ('Scaffold notifications LiveView mount') depends on the G1 context API being importable. Within each goal, tasks use array-index dependencies for sibling sequencing.",
+  "goals": [
+    {
+      "title": "Add notifications data layer (schema, migration, context)",
+      "type": "goal",
+      "complexity": "medium",
+      "priority": "high",
+      "needs_review": false,
+      "why": "Notifications need a stable schema and a typed context API before any UI can be wired up. This goal is purely data-layer work and is independent of the eventual UI.",
+      "what": "Add the notifications schema and migration, the per-user preferences sub-schema, and the context functions for create / list / mark-read.",
+      "where_context": "lib/app/notifications/, priv/repo/migrations/",
+      "acceptance_criteria": "Schema + migration land\nContext API exposes create_notification, list_for_user, mark_read\nUnit tests cover the context API\nDB indexes named in the design spec are present",
+      "pitfalls": ["Do not change existing user table fields — preferences live in a new table"],
+      "tasks": [
+        {
+          "title": "Add notifications schema with recipient_id, event_class, payload, read_at",
+          "type": "work",
+          "complexity": "small",
+          "priority": "high",
+          "needs_review": false,
+          "description": "Create the Ecto schema and module for notifications. Fields: id, recipient_id (belongs_to user), event_class (string), payload (map), read_at (utc_datetime|nil), timestamps.",
+          "acceptance_criteria": "Schema module exists at lib/app/notifications/notification.ex\nChangeset validates required fields\nUnit test exercises the changeset happy + error paths",
+          "patterns_to_follow": "Mirror lib/app/accounts/user.ex for changeset structure\nUse Ecto.Schema, not embedded_schema",
+          "pitfalls": ["Do not name the recipient field 'user_id' — keep it explicit as recipient_id"],
+          "dependencies": [],
+          "key_files": [
+            {"file_path": "lib/app/notifications/notification.ex", "note": "New schema", "position": 0},
+            {"file_path": "test/app/notifications/notification_test.exs", "note": "Changeset tests", "position": 1}
+          ],
+          "verification_steps": [
+            {"step_type": "command", "step_text": "mix test test/app/notifications/notification_test.exs", "expected_result": "All tests pass", "position": 0}
+          ]
+        }
+        // ... 5 more tasks: migration, preferences schema, create_notification, list_for_user, mark_read context functions
+      ]
+    },
+    {
+      "title": "Add notifications LiveView UI with presence and form components",
+      "type": "goal",
+      "complexity": "medium",
+      "priority": "high",
+      "needs_review": false,
+      "why": "Once the data layer is in place, users need a LiveView surface to view notifications, mark them read, and configure preferences.",
+      "what": "Scaffold the notifications LiveView, wire Phoenix.Presence for unread badges, build the preferences form component, and add the in-header indicator.",
+      "where_context": "lib/app_web/live/notifications/, lib/app_web/components/",
+      "acceptance_criteria": "LiveView mount and render work\nUnread count updates in real time via Presence\nPreferences form persists changes through the data-layer context\nUnit tests cover LiveView mount + handle_event paths",
+      "pitfalls": ["Do not call Repo directly from the LiveView — always go through MyApp.Notifications context"],
+      "tasks": [
+        {
+          "title": "Scaffold notifications LiveView mount and basic render",
+          "type": "work",
+          "complexity": "small",
+          "priority": "high",
+          "needs_review": false,
+          "description": "Add NotificationsLive in lib/app_web/live/notifications/notifications_live.ex. Mount loads the current user's notifications via MyApp.Notifications.list_for_user. Render shows a simple list with mark-read buttons.",
+          "acceptance_criteria": "Route /notifications maps to NotificationsLive\nMount calls MyApp.Notifications.list_for_user(current_user)\nRender shows the list with mark-read buttons\nLiveView test asserts mount + handle_event(\"mark_read\", ...)",
+          "patterns_to_follow": "Mirror lib/app_web/live/dashboard/dashboard_live.ex for LiveView structure\nUse the existing Layouts.app wrapper",
+          "pitfalls": ["Do not call MyApp.Repo directly — go through MyApp.Notifications"],
+          "dependencies": [],
+          "key_files": [
+            {"file_path": "lib/app_web/live/notifications/notifications_live.ex", "note": "New LiveView", "position": 0},
+            {"file_path": "test/app_web/live/notifications/notifications_live_test.exs", "note": "Mount + event tests", "position": 1},
+            {"file_path": "lib/app_web/router.ex", "note": "Route registration", "position": 2}
+          ],
+          "verification_steps": [
+            {"step_type": "command", "step_text": "mix test test/app_web/live/notifications/notifications_live_test.exs", "expected_result": "All tests pass", "position": 0}
+          ]
+        }
+        // ... 7 more tasks: Presence wiring, unread badge, preferences form component, header indicator, mark-all-read action, route auth, telemetry
+      ]
+    }
+  ]
+}
+```
+
+Key features of this decomposition to copy in your own outputs:
+
+- **Goals appear in claim order.** G1 (data layer) comes first because G2 (UI layer) cannot proceed until G1's context API is available in `main`.
+- **`decomposition_notes` documents the cross-goal dependency in plain text.** The split-reason is named (sizing-driven), the seam is named (layer boundary), and the exact claim ordering is spelled out so a human reading the JSON understands the workflow without re-reading the source spec.
+- **No cross-goal references in `dependencies` arrays.** G2's first task has `"dependencies": []` even though it implicitly depends on G1. Cross-goal coordination lives in `decomposition_notes` only.
+- **Each goal has its own internal coherence.** A claimant who only reads G1 (or only G2) has everything they need within that goal — acceptance criteria, pitfalls, key_files. The decomposition_notes is the meta-layer above both.
 
 ## Hard rules
 
