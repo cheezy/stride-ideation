@@ -51,6 +51,11 @@ cat > "$TMP/with_audit.json" <<'EOF'
 }
 EOF
 
+# Record the on-disk file's pre-strip SHA + contents so the
+# "file is unchanged" assertion below has a fixed baseline.
+WITH_AUDIT_SHA_BEFORE="$(shasum -a 256 "$TMP/with_audit.json" | awk '{print $1}')"
+cp "$TMP/with_audit.json" "$TMP/with_audit.json.before"
+
 if STRIPPED="$(python3 "$STRIP" "$TMP/with_audit.json" 2>&1)"; then
   if ! printf '%s' "$STRIPPED" | grep -q 'source_spec'; then
     if ! printf '%s' "$STRIPPED" | grep -q 'source_spec_sha256'; then
@@ -71,6 +76,21 @@ if STRIPPED="$(python3 "$STRIP" "$TMP/with_audit.json" 2>&1)"; then
   fi
 else
   fail "strip: exited non-zero on valid input" "$STRIPPED"
+fi
+
+# AC: the on-disk file must be unchanged after stripping. This is the
+# audit-trail guarantee — the local-audit fields stay on disk so the
+# v0.2 drift check has something to compare against.
+WITH_AUDIT_SHA_AFTER="$(shasum -a 256 "$TMP/with_audit.json" | awk '{print $1}')"
+if [ "$WITH_AUDIT_SHA_BEFORE" = "$WITH_AUDIT_SHA_AFTER" ]; then
+  if diff -q "$TMP/with_audit.json.before" "$TMP/with_audit.json" >/dev/null 2>&1; then
+    pass "strip: on-disk file is byte-for-byte unchanged after run"
+  else
+    fail "strip: SHAs matched but diff disagreed" "diff output above"
+  fi
+else
+  fail "strip: on-disk file was modified by the helper" \
+    "before SHA=$WITH_AUDIT_SHA_BEFORE after SHA=$WITH_AUDIT_SHA_AFTER"
 fi
 
 # --- strip_audit_fields: idempotent when fields already absent --------------
