@@ -210,11 +210,38 @@ fi
 if python3 "$READ_AUTH" "$TMP/does_not_exist.md" >/dev/null 2>"$TMP/missing.err"; then
   fail "read_auth: exited 0 on nonexistent file"
 else
-  if grep -q "could not read" "$TMP/missing.err"; then
+  if grep -q ".stride_auth.md not found" "$TMP/missing.err"; then
     pass "read_auth: errors cleanly on missing file"
   else
     fail "read_auth: missing-file error message wrong" "$(cat "$TMP/missing.err")"
   fi
+fi
+
+# --- read_auth: missing file error includes setup-doc link ------------------
+
+if grep -Fq "https://www.stridelikeaboss.com/api/agent/onboarding" "$TMP/missing.err"; then
+  pass "read_auth: missing-file error links to the setup docs"
+else
+  fail "read_auth: missing-file error does not link to setup docs" \
+    "$(cat "$TMP/missing.err")"
+fi
+
+# --- read_auth: missing-URL error also links to setup docs ------------------
+
+if grep -Fq "https://www.stridelikeaboss.com/api/agent/onboarding" "$TMP/no_url.err"; then
+  pass "read_auth: missing-URL error links to the setup docs"
+else
+  fail "read_auth: missing-URL error does not link to setup docs" \
+    "$(cat "$TMP/no_url.err")"
+fi
+
+# --- read_auth: missing-token error also links to setup docs ----------------
+
+if grep -Fq "https://www.stridelikeaboss.com/api/agent/onboarding" "$TMP/no_token.err"; then
+  pass "read_auth: missing-token error links to the setup docs"
+else
+  fail "read_auth: missing-token error does not link to setup docs" \
+    "$(cat "$TMP/no_token.err")"
 fi
 
 # --- summary ----------------------------------------------------------------

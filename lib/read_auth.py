@@ -57,6 +57,20 @@ def main(argv: "list[str]") -> "None":
     try:
         with open(path, "r", encoding="utf-8") as fp:
             text = fp.read()
+    except FileNotFoundError:
+        sys.stderr.write(
+            f"stride-ideation: .stride_auth.md not found at {path}.\n"
+            f"\n"
+            f"Create it by following the Stride onboarding instructions at\n"
+            f"  https://www.stridelikeaboss.com/api/agent/onboarding\n"
+            f"\n"
+            f"The file should contain at minimum:\n"
+            f"  - **API URL:** `https://www.stridelikeaboss.com`\n"
+            f"  - **API Token:** `stride_xxx...`  (your bearer token)\n"
+            f"\n"
+            f"Add the file to .gitignore — it contains a secret.\n"
+        )
+        sys.exit(1)
     except OSError as exc:
         sys.stderr.write(
             f"stride-ideation: could not read .stride_auth.md at {path}: {exc}\n"
@@ -68,8 +82,11 @@ def main(argv: "list[str]") -> "None":
 
     if not url:
         sys.stderr.write(
-            f"stride-ideation: STRIDE_API_URL not found in {path}. "
-            f"Expected a line like '- **API URL:** `https://www.stridelikeaboss.com`'.\n"
+            f"stride-ideation: STRIDE_API_URL not found in {path}.\n"
+            f"Expected a line like:\n"
+            f"  - **API URL:** `https://www.stridelikeaboss.com`\n"
+            f"See the setup instructions at:\n"
+            f"  https://www.stridelikeaboss.com/api/agent/onboarding\n"
         )
         sys.exit(1)
 
@@ -77,9 +94,13 @@ def main(argv: "list[str]") -> "None":
         # NOTE: never include the token value in stderr — even on partial
         # matches. The stderr channel is what the user sees on failure.
         sys.stderr.write(
-            f"stride-ideation: STRIDE_API_TOKEN not found in {path}. "
-            f"Expected a line like '- **API Token:** `stride_xxx...`' "
-            f"(must not be prefixed by 'Local ').\n"
+            f"stride-ideation: STRIDE_API_TOKEN not found in {path}.\n"
+            f"Expected a line like:\n"
+            f"  - **API Token:** `stride_xxx...`\n"
+            f"(the token line MUST NOT be prefixed by 'Local ' — that names a "
+            f"different field).\n"
+            f"See the setup instructions at:\n"
+            f"  https://www.stridelikeaboss.com/api/agent/onboarding\n"
         )
         sys.exit(1)
 
