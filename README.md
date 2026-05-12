@@ -65,6 +65,37 @@ No. Brainstorming output is already a useful artifact. Pick it up where you left
 
 The `fixtures/` directory in this repo contains three example requirements docs showing what `/ideate` output looks like at three different scopes (small feature, multi-goal initiative, fast-and-loose exploration) — useful as a calibration reference if you're not sure what "substantive" content looks like for your case.
 
+## Smoke test
+
+The end-to-end plugin pipeline (validate → drift check → auth → strip audit fields → POST → render created identifiers) is covered by `lib/run_smoke_test.sh`. By default it runs in **dry mode**: each helper is invoked with a fixture input, the response-rendering code is exercised against a canned 2xx body, and no network call is made. Safe to run in CI.
+
+```bash
+# Dry run — no network call, no real tasks created.
+./lib/run_smoke_test.sh
+```
+
+Expected output: five stages, ten ✓ markers, `10 passed, 0 failed`.
+
+To exercise the full pipeline against a real Stride instance, use `--live` with a batch JSON path:
+
+```bash
+# LIVE run — POSTs to the Stride API in $CLAUDE_PROJECT_DIR/.stride_auth.md.
+# CREATES REAL TASKS in that Stride workspace. Use a dev instance.
+./lib/run_smoke_test.sh --live fixtures/2026-05-12T120000-dark-mode-toggle-stride-batch.json
+```
+
+Auth is read from the same `.stride_auth.md` the slash commands use. Never commit `.stride_auth.md` — it carries a bearer token. The README's *Installation* and the file's own contents both link to the canonical Stride onboarding URL (`https://www.stridelikeaboss.com/api/agent/onboarding`) for setup instructions.
+
+### Re-running the interactive end-to-end test
+
+`lib/run_smoke_test.sh --live` covers the `/decompose` + `/ship` half of the pipeline. The `/ideate` half requires an interactive Claude Code session because the ideation skill runs a real Q&A loop. The manual procedure:
+
+1. In a Claude Code session in this repo, run `/stride-ideation:ideate <topic>` and answer the round-based questions through to the `requirements-reviewer` advisory pass. Confirm the resulting `*-requirements.md` is committed.
+2. Run `/stride-ideation:decompose <path-to-requirements.md>`. Confirm the resulting `*-stride-batch.json` is committed and that the summary table looks right.
+3. Run `/stride-ideation:ship <path-to-stride-batch.json>` (or invoke `lib/run_smoke_test.sh --live <path>`). Confirm the created G/W identifiers appear in the Stride workspace's Backlog column with the expected titles.
+
+The unit-test suites (`lib/test-*.sh`) cover every helper in isolation. The smoke test confirms the helpers compose correctly. The interactive end-to-end is the human-driven check that the slash commands themselves behave correctly when driven by a real user — a thing the test harness fundamentally cannot stand in for.
+
 ## License
 
 MIT — see [LICENSE](LICENSE).
