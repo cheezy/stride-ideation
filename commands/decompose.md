@@ -104,19 +104,33 @@ Wait for the subagent's response. The contract is: **a single fenced ```json doc
 
 ### Step 7: Validate the subagent output
 
-Parse the extracted JSON. Any failure here prints a one-line error and exits non-zero — do NOT write a partial or malformed file:
+Write the extracted JSON to a temporary file and run the structural validator at `lib/validate_batch.py`. The validator owns the canonical implementation of every check; the command body delegates and surfaces the validator's stderr verbatim on failure:
 
-1. **JSON parses.** If parsing fails, print *"stride-ideation: decomposer returned malformed JSON — first 500 chars: `<excerpt>`"* and stop. Save the raw response to a tmp file for debugging if convenient.
+```bash
+TMP_JSON="$(mktemp -t stride_decompose_validate.XXXXXX.json)"
+printf '%s' "$RAW_SUBAGENT_JSON" > "$TMP_JSON"
 
-2. **Root key is `goals`.** The most common batch-API mistake is a root key of `tasks`. If the root object has `tasks` instead of `goals`, do NOT silently fix it. Print:
+if ! python3 "<plugin-root>/lib/validate_batch.py" "$TMP_JSON" 2>"$TMP_JSON.err"; then
+  cat "$TMP_JSON.err" >&2
+  rm -f "$TMP_JSON" "$TMP_JSON.err"
+  exit 1
+fi
+rm -f "$TMP_JSON.err"
+```
 
-   > *"stride-ideation: decomposer emitted root key `tasks` — Stride's batch API requires `goals`. The agent prompt at agents/requirements-decomposer.md should have prevented this; please re-run /decompose and report the regression if it persists."*
+The validator enforces five named checks, in order:
 
-   Exit non-zero. If the root key is anything OTHER than `goals` or `tasks` (e.g., `goal`, `batch`, `result`), print a similar error naming the offending key and stop.
+| Check | Failure mode | Example error message |
+|---|---|---|
+| (a) `parse_error` | Input is not valid JSON | `JSON parse failed at line 3 col 7 (char 24): Expecting property name enclosed in double quotes` |
+| (b) `wrong_root_key` | Root has `tasks` or any key other than `goals` | `root key 'tasks' is the most common batch-API mistake — Stride's POST /api/tasks/batch requires root key 'goals'` |
+| (c) `empty_goals` | `goals` missing, not an array, or empty | `root.goals is an empty array — the decomposer returned no goals` |
+| (d) `goal_missing_field` | A goal lacks `title`, `type`, or `tasks`, or a task is malformed | `goals[0] is missing required field 'title'` |
+| (e) `bad_dependency_index` | A task's `dependencies[]` index is out of range, negative, or a forward / self reference | `goals[0].tasks[1].dependencies references index 5 but goal only has 2 tasks (valid indices 0..1)` |
 
-3. **`goals` is a non-empty array.** A decomposer that returns `{"goals": []}` has failed its task. Print *"stride-ideation: decomposer returned an empty goals array — check the requirements doc for under-specification"* and exit non-zero.
+The validator does **NOT** check per-task Stride-API field shapes (`pitfalls` as array-of-strings, `verification_steps` as object array, etc.). Those are the decomposer agent's responsibility per its prompt at `agents/requirements-decomposer.md`. If a field-level shape error slips through, `/ship` will surface the API's own 422 message — Step 7 is a structural-validity gate only.
 
-4. **`decomposition_notes` exists at the root.** It is required by the subagent contract for documenting cross-goal claim ordering. If missing, set it to an empty string and emit a one-line warning — but do NOT fail; some single-goal decompositions legitimately have nothing cross-goal to document.
+After the validator returns zero, also confirm that `decomposition_notes` exists at the root. It is required by the subagent contract for documenting cross-goal claim ordering. If the key is missing, set it to an empty string before the next step and emit a one-line warning — but do NOT fail; some single-goal decompositions legitimately have nothing cross-goal to document.
 
 ### Step 8: Stamp source_spec and source_spec_sha256
 
