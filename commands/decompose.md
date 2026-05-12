@@ -62,15 +62,30 @@ If a stride-batch file with the inherited timestamp + slug already exists (rare 
 
 Do NOT create or touch `TARGET_PATH` yet. A pre-created empty file would leave a half-baked artifact if the subagent dispatch fails or is interrupted.
 
-### Step 5: Compute the source SHA-256
+### Step 5: Compute the source SHA-256 and normalize the source path
 
 Compute the SHA-256 of the requirements doc and capture it for the orchestrator-injected fields:
 
 ```bash
-SOURCE_SHA="$(shasum -a 256 "$REQUIREMENTS_PATH" | awk '{print $1}')"
+SOURCE_SHA="$(shasum -a 256 "$REQUIREMENTS_PATH" | awk '{print $1}' | tr 'A-Z' 'a-z')"
 ```
 
-If `shasum` is unavailable on the host (rare on macOS / Linux), fall back to `sha256sum "$REQUIREMENTS_PATH"`. The resulting hex string is stamped into the output JSON in Step 8.
+If `shasum` is unavailable on the host (rare on macOS / Linux), fall back to `sha256sum "$REQUIREMENTS_PATH" | awk '{print $1}' | tr 'A-Z' 'a-z'`. The resulting hex string MUST be **lowercase** so it compares byte-for-byte with the value `/ship` will recompute in its drift check.
+
+**Normalize `REQUIREMENTS_PATH` to a stable form** so the stamped `source_spec` value is consistent across invocations from different working directories. Two acceptable forms:
+
+```bash
+# Preferred: relative to the git repo root.
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+SOURCE_SPEC="$(python3 -c "import os,sys; print(os.path.relpath(sys.argv[1], sys.argv[2]))" "$REQUIREMENTS_PATH" "$REPO_ROOT")"
+
+# Fallback when not in a git repo: absolute path.
+if [ -z "$SOURCE_SPEC" ] || [ "$SOURCE_SPEC" = ".." ] || [[ "$SOURCE_SPEC" == ../* ]]; then
+  SOURCE_SPEC="$(cd "$(dirname "$REQUIREMENTS_PATH")" && pwd)/$(basename "$REQUIREMENTS_PATH")"
+fi
+```
+
+Do NOT use the raw `$REQUIREMENTS_PATH` as `SOURCE_SPEC` — it depends on the user's current working directory at invocation time and would make `/ship`'s drift check brittle across different shells.
 
 ### Step 6: Dispatch the `requirements-decomposer` subagent
 
@@ -105,18 +120,28 @@ Parse the extracted JSON. Any failure here prints a one-line error and exits non
 
 ### Step 8: Stamp source_spec and source_spec_sha256
 
-Inject the local-audit fields at the JSON root. These are the ONLY mutations the orchestrator makes to the subagent's output — every other field is preserved verbatim:
+Inject the local-audit fields at the JSON root. The output JSON MUST have these exact root keys in this exact order (so a human reading the file sees the audit metadata at the top before the goal payload):
 
 ```json
 {
-  "source_spec": "<REQUIREMENTS_PATH>",
+  "source_spec": "<SOURCE_SPEC>",
   "source_spec_sha256": "<SOURCE_SHA>",
   "decomposition_notes": "...subagent value...",
   "goals": [...subagent value...]
 }
 ```
 
-`/stride-ideation:ship` reads these two fields to detect drift between the requirements doc and the batch JSON before POSTing. Both fields are stripped by `/ship` before the API payload is sent, so they exist only on disk for local audit.
+Use the **normalized** `SOURCE_SPEC` from Step 5 (relative to repo root, or absolute as fallback) — not the raw `$REQUIREMENTS_PATH`. The hex string MUST be **lowercase** so `/ship`'s drift check compares byte-for-byte.
+
+**Defensive overwrite.** The decomposer subagent's prompt at `agents/requirements-decomposer.md` explicitly tells the agent NOT to emit `source_spec` or `source_spec_sha256` — but if the agent emits them anyway (regression, prompt drift), the orchestrator **always overwrites** them with values computed here. Never preserve agent-supplied values for these two keys. Concretely, when serializing the merged JSON:
+
+1. Start from the subagent's output object.
+2. **Delete** any `source_spec` and `source_spec_sha256` keys the subagent included.
+3. Build a new object whose iteration order is `source_spec`, `source_spec_sha256`, `decomposition_notes`, `goals`.
+
+This is the ONLY mutation the orchestrator makes to the subagent's output — every other field (per-goal title, tasks, pitfalls, etc.) is preserved verbatim.
+
+**Why both fields.** `/stride-ideation:ship` reads `source_spec_sha256` and recomputes it against the file at `source_spec`. If the recomputed hash differs from the stamped one, the requirements doc has drifted since `/decompose` ran and `/ship` prompts the user. Both fields are stripped by `/ship` before the API payload is sent, so they exist only on disk for local audit.
 
 ### Step 9: Verify path uniqueness and write the file
 
