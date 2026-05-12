@@ -38,6 +38,60 @@ The **root-key check is the load-bearing one** for this command — Stride's `/a
 
 Do NOT proceed past Step 2 if the validator fails. The Stride API is the user's database — a malformed payload that slipped through would create no tasks but might still trigger rate-limiting or noise an audit trail.
 
+### Step 2b: Source-spec drift check
+
+If the batch JSON has both `source_spec` and `source_spec_sha256` at its root (the normal case — `/stride-ideation:decompose` stamps these), recompute the SHA-256 of the file at `source_spec` and compare against the stamped value. On mismatch, the requirements doc has drifted since `/decompose` ran and the batch JSON may no longer reflect the user's current intent. Prompt the user; default to abort.
+
+```bash
+python3 "<plugin-root>/lib/drift_check.py" "$BATCH_PATH" 2>/tmp/ship-drift.err
+DRIFT_EXIT=$?
+
+case "$DRIFT_EXIT" in
+  0)
+    # No drift, or no source_spec stamped (hand-written-JSON path).
+    # Proceed silently — no prompt, no output. This is the no-noise rule
+    # from the pitfall: do not require the user to type 'y' when there's
+    # nothing to confirm.
+    rm -f /tmp/ship-drift.err
+    ;;
+  1)
+    # Drift detected. Surface the warning verbatim — it names the
+    # source_spec, the stamped SHA, and the recomputed SHA so the
+    # user knows exactly what changed.
+    cat /tmp/ship-drift.err >&2
+    rm -f /tmp/ship-drift.err
+
+    # Prompt with [y/N]; default to abort.
+    printf 'Continue with stale JSON, or run /decompose again? [y/N] ' >&2
+    read -r REPLY < /dev/tty
+    case "$REPLY" in
+      y|Y|yes|YES) : ;;  # user confirmed — fall through to Step 3
+      *)
+        echo "stride-ideation: aborted — re-run /stride-ideation:decompose <requirements-path> to refresh the batch JSON, then retry /ship." >&2
+        exit 1
+        ;;
+    esac
+    ;;
+  2)
+    # Drift checker errored (source file missing, batch JSON malformed,
+    # etc.). The validator in Step 2 already covered the JSON-parse
+    # case, so this branch typically means the source_spec file was
+    # moved or deleted since /decompose ran.
+    cat /tmp/ship-drift.err >&2
+    rm -f /tmp/ship-drift.err
+    echo "stride-ideation: aborted — fix the underlying error and retry /ship." >&2
+    exit 1
+    ;;
+esac
+```
+
+**Key behaviors enforced by this step:**
+
+- **Drift detected** → user is prompted. The default answer is **no** (abort). The prompt text quotes the `[y/N]` casing convention so it is unambiguous which letter is the default.
+- **No drift** → no prompt, no output. The `/ship` invocation feels exactly the same as in v0.3-without-drift-checks — the no-noise rule from the pitfall.
+- **No `source_spec` stamped** (hand-written JSON, the rare power-user case) → no prompt. Drift detection does not apply when there is no baseline.
+- **Source file disappeared** → abort with the underlying error message. Never silently skip the check — that would hide regressions.
+
 ### Step 3: Read auth from `.stride_auth.md`
 
 Locate `.stride_auth.md` (the convention is `$CLAUDE_PROJECT_DIR/.stride_auth.md` — the same file the Stride orchestrator reads). Invoke `lib/read_auth.py` and source its output:
@@ -205,7 +259,6 @@ Do NOT print "next step:" suggestions, do NOT propose follow-on commands. The te
 
 ## What this command does NOT do
 
-- **Drift check against `source_spec_sha256`** — covered in a separate task; recompute the SHA-256 of the file at `source_spec` and compare against the stamped value before POSTing. This base command POSTs whatever's in the file.
 - **Validate Stride API field shapes** beyond root-key + structure — that's `lib/validate_batch.py`'s job; surface 422 errors verbatim if anything slips through.
 - **Modify the source batch JSON or its companion requirements doc** — both are read-only.
 - **Retry on transient failures** — fail fast and let the user re-invoke. Idempotency on the Stride side is not guaranteed for partial batches.
