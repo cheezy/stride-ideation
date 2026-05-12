@@ -43,6 +43,43 @@ sti_slugify() {
   printf '%s' "$replaced"
 }
 
+sti_slug_from_path() {
+  # Extract the topic slug from a previously generated artifact path:
+  #   <dir>/YYYY-MM-DDTHHMMSS-<slug>-<artifact>(-<N>)?.<ext>
+  #
+  # Usage: sti_slug_from_path <path> <artifact>
+  #
+  # <artifact> is the literal artifact token used when the path was generated
+  # (e.g. `requirements`, `stride-batch`). Required because some artifact
+  # tokens contain dashes (e.g. `stride-batch`) and the parse would otherwise
+  # be ambiguous.
+  #
+  # Strips an optional `-N` collision discriminator inserted by
+  # sti_unique_path so reruns inherit the original slug. Used by
+  # /stride-ideation:ideate --continue to lock the topic slug to the source
+  # document's slug — never re-prompts, so the refined doc pairs with the
+  # original by filename family.
+  local path="${1:-}"
+  local artifact="${2:-}"
+  if [ -z "$path" ] || [ -z "$artifact" ]; then
+    echo "sti_slug_from_path: usage: sti_slug_from_path <path> <artifact>" >&2
+    return 1
+  fi
+  local base
+  base="$(basename "$path")"
+  local stem="${base%.*}"
+  # Match: YYYY-MM-DDTHHMMSS-<slug>-<artifact>(-<digits>)?
+  # Capture only the slug. Portable across BSD and GNU sed via -E.
+  local slug
+  slug="$(printf '%s' "$stem" \
+    | sed -E "s/^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{6}-(.+)-${artifact}(-[0-9]+)?$/\\1/")"
+  if [ -z "$slug" ] || [ "$slug" = "$stem" ]; then
+    echo "sti_slug_from_path: path does not match the expected filename family for artifact '$artifact': $path" >&2
+    return 1
+  fi
+  printf '%s' "$slug"
+}
+
 sti_unique_path() {
   local dir="${1:-}"
   local ts="${2:-}"

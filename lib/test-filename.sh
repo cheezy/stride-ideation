@@ -102,6 +102,47 @@ assert_eq "slug with spaces normalizes correctly through unique_path" \
   "$(sti_unique_path "$TMP" "$NOISY_TS" "$SLUG_FROM_HUMAN" stride-batch json)" \
   "$EXPECTED_COMBINED"
 
+# --- slug_from_path --------------------------------------------------------
+
+assert_eq "slug_from_path: simple requirements artifact" \
+  "$(sti_slug_from_path 'docs/superpowers/specs/2026-05-12T103000-add-notifications-requirements.md' requirements)" \
+  "add-notifications"
+
+assert_eq "slug_from_path: works without a directory prefix" \
+  "$(sti_slug_from_path '2026-05-12T103000-add-notifications-requirements.md' requirements)" \
+  "add-notifications"
+
+assert_eq "slug_from_path: strips a -2 collision discriminator" \
+  "$(sti_slug_from_path '2026-05-12T103000-add-notifications-requirements-2.md' requirements)" \
+  "add-notifications"
+
+assert_eq "slug_from_path: strips a -10 collision discriminator" \
+  "$(sti_slug_from_path '2026-05-12T103000-add-notifications-requirements-10.md' requirements)" \
+  "add-notifications"
+
+assert_eq "slug_from_path: preserves trailing slug digits when artifact follows them" \
+  "$(sti_slug_from_path '2026-05-12T103000-oauth2-login-requirements.md' requirements)" \
+  "oauth2-login"
+
+assert_eq "slug_from_path: multi-word artifact (stride-batch)" \
+  "$(sti_slug_from_path '2026-05-12T103000-add-notifications-stride-batch.json' stride-batch)" \
+  "add-notifications"
+
+assert_eq "slug_from_path: multi-word artifact with collision discriminator" \
+  "$(sti_slug_from_path '2026-05-12T103000-add-notifications-stride-batch-3.json' stride-batch)" \
+  "add-notifications"
+
+# Negative case: path that doesn't match the expected family should fail
+# and produce no stdout (we redirect stderr so the harness output stays clean).
+BAD_OUT="$(sti_slug_from_path 'not-a-timestamped-filename.md' requirements 2>/dev/null || true)"
+if [ -z "$BAD_OUT" ]; then
+  PASS=$(( PASS + 1 ))
+  printf 'PASS  slug_from_path: malformed path produces empty stdout (non-zero exit)\n'
+else
+  FAIL=$(( FAIL + 1 ))
+  printf 'FAIL  slug_from_path: malformed path leaked output: %s\n' "$BAD_OUT"
+fi
+
 # --- summary ---------------------------------------------------------------
 
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
