@@ -1,0 +1,13 @@
+{
+  "name": "stride-ideation",
+  "description": "Turn an idea into shipped Stride tasks. Three slash commands — /stride-ideation:ideate (interactive ideation session producing a committed requirements doc), /stride-ideation:decompose (break the requirements into a Stride batch JSON), and /stride-ideation:ship (POST the batch to the Stride API). Replaces superpowers:brainstorming for projects that use Stride.",
+  "version": "0.1.0",
+  "author": {
+    "name": "Jeff Morgan",
+    "email": "cheezy@letstango.ca"
+  },
+  "homepage": "https://github.com/cheezy/stride-ideation",
+  "repository": "https://github.com/cheezy/stride-ideation",
+  "license": "MIT",
+  "keywords": ["stride", "ideation", "brainstorming", "planning", "claude-code", "ai-agents"]
+}
