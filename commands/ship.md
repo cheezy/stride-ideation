@@ -139,6 +139,7 @@ API_PAYLOAD="$(python3 "<plugin-root>/lib/strip_audit_fields.py" "$BATCH_PATH")"
 
 ```bash
 RESPONSE_FILE="$(mktemp -t stride_ship_response.XXXXXX.json)"
+CURL_ERR_FILE="$(mktemp -t stride_ship_curl_err.XXXXXX)"
 HTTP_CODE="$(
   curl -sS -X POST \
     -H "Authorization: Bearer $STRIDE_API_TOKEN" \
@@ -146,32 +147,48 @@ HTTP_CODE="$(
     -d "$API_PAYLOAD" \
     "$STRIDE_API_URL/api/tasks/batch" \
     -o "$RESPONSE_FILE" \
-    -w '%{http_code}'
+    -w '%{http_code}' \
+    2>"$CURL_ERR_FILE"
 )"
+CURL_EXIT=$?
 unset STRIDE_API_TOKEN  # paranoia: drop the token from the shell as soon as POST returns
 ```
 
-The `-sS` flags silence progress bars but keep error output. `-w '%{http_code}'` writes the HTTP status code to stdout; the response body goes to `$RESPONSE_FILE` via `-o`. Never use `-v` here — verbose mode would echo the Authorization header.
+The `-sS` flags silence the progress bar but keep error output; we capture that stderr to `$CURL_ERR_FILE`. `-w '%{http_code}'` writes the HTTP status code to stdout; the response body goes to `$RESPONSE_FILE` via `-o`. Never use `-v` here — verbose mode would echo the Authorization header.
 
-If `curl` itself fails (exit non-zero), surface a generic transport error without the token:
+If `curl` failed at the transport layer (`CURL_EXIT != 0`, or `HTTP_CODE` is empty / `"000"`), the user gets curl's **verbatim** error message — never a generic "something went wrong" wrapper. The actual cause (DNS resolution failure, connection refused, TLS handshake error, timeout, etc.) is the load-bearing diagnostic.
 
 ```bash
-if [ -z "$HTTP_CODE" ] || [ "$HTTP_CODE" = "000" ]; then
-  echo "stride-ideation: HTTP transport failed (network error, DNS, TLS handshake, ...)." >&2
-  rm -f "$RESPONSE_FILE"
+if [ "$CURL_EXIT" -ne 0 ] || [ -z "$HTTP_CODE" ] || [ "$HTTP_CODE" = "000" ]; then
+  echo "stride-ideation: HTTP request failed before the Stride API responded:" >&2
+  if [ -s "$CURL_ERR_FILE" ]; then
+    # curl wrote a real error — surface it verbatim. curl's messages are
+    # already user-friendly ("Could not resolve host: stridelikeaboss.com",
+    # "Failed to connect to ... port 443: Connection refused", etc.).
+    cat "$CURL_ERR_FILE" >&2
+  else
+    # curl exited non-zero with no stderr — uncommon but possible. Print
+    # the numeric exit code so the user has something to look up.
+    echo "  curl exited with status $CURL_EXIT and no stderr output." >&2
+  fi
+  rm -f "$RESPONSE_FILE" "$CURL_ERR_FILE"
   exit 1
 fi
+rm -f "$CURL_ERR_FILE"
 ```
 
 ### Step 6: Branch on the HTTP status code
 
+**Hard rule for every non-2xx branch: print the response body verbatim.** Do NOT parse it, do NOT reformat it, do NOT summarize it. The user needs the literal bytes the Stride API returned to debug the failure. Stride's 422 responses in particular carry a `details` array naming the offending field(s); rewriting the JSON would strip that signal.
+
 | Status code | Action |
 |---|---|
 | 2xx | Continue to Step 7 (render the created identifiers). |
-| 4xx | Surface the response body verbatim (it contains Stride's error reason) and exit non-zero. The body is JSON like `{"error": "..."}` or `{"errors": {...}}` depending on the case. Print the full response. |
-| 5xx | Print a generic *"stride-ideation: Stride API returned 5xx — see response body below"* line followed by the response body. Exit non-zero. The user should retry or report. |
+| 4xx | One-line header naming the status code, then the full response body verbatim. Exit non-zero. The body typically looks like `{"error": "...", "details": {...}}` or `{"errors": {"field": ["message"]}}` — both shapes are printed unchanged so the user sees the field-level diagnostic Stride emitted. |
+| 5xx | One-line header naming the status code, then the full response body verbatim. Exit non-zero. The user should retry manually or report — `/ship` does NOT retry, does NOT exponential-backoff, does NOT rate-limit. |
+| Other (1xx, 3xx) | One-line header naming the status code, then the full response body verbatim. Exit non-zero. These shouldn't reach this code path (curl follows redirects internally and the Stride API never returns 1xx), but if one shows up we surface it rather than swallow it. |
 
-Concretely:
+The pitfall the AC pins is "Do not parse and reformat the Stride response — the user needs the verbatim error to debug." The `cat "$RESPONSE_FILE" >&2` calls below honor that. Never substitute a `python3 -c '... pretty-print ...'` between `cat` and the user.
 
 ```bash
 case "$HTTP_CODE" in
@@ -179,21 +196,21 @@ case "$HTTP_CODE" in
     : # fall through to Step 7
     ;;
   4*)
-    echo "stride-ideation: Stride API rejected the batch (HTTP $HTTP_CODE):" >&2
+    echo "stride-ideation: Stride API rejected the batch (HTTP $HTTP_CODE). Response body:" >&2
     cat "$RESPONSE_FILE" >&2
     echo >&2
     rm -f "$RESPONSE_FILE"
     exit 1
     ;;
   5*)
-    echo "stride-ideation: Stride API returned $HTTP_CODE — see response body below" >&2
+    echo "stride-ideation: Stride API returned HTTP $HTTP_CODE. Response body:" >&2
     cat "$RESPONSE_FILE" >&2
     echo >&2
     rm -f "$RESPONSE_FILE"
     exit 1
     ;;
   *)
-    echo "stride-ideation: unexpected HTTP status $HTTP_CODE" >&2
+    echo "stride-ideation: unexpected HTTP status $HTTP_CODE. Response body:" >&2
     cat "$RESPONSE_FILE" >&2
     echo >&2
     rm -f "$RESPONSE_FILE"
@@ -201,6 +218,8 @@ case "$HTTP_CODE" in
     ;;
 esac
 ```
+
+**No retries.** When `/ship` fails on a 4xx or 5xx, the user is the retry mechanism: they read the verbatim body, fix the underlying issue (regenerate the JSON via `/decompose`, hand-edit it, wait out a transient 5xx, etc.), and re-run `/ship`. Stride does not guarantee per-task idempotency on a partially-failed batch, so an automatic retry could double-create some tasks while leaving others to fail again. Manual retry is the safer contract.
 
 ### Step 7: Render the created identifiers
 
