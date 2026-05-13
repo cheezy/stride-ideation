@@ -2,7 +2,7 @@
 
 **Turn an idea into shipped Stride tasks via three slash commands.**
 
-This plugin replaces `superpowers:brainstorming` for projects that use [Stride](https://www.stridelikeaboss.com). Run `/stride-ideation:ideate` to drive an interactive ideation session that produces a committed requirements markdown document. Stop there if you just want a written spec — or run `/stride-ideation:decompose` to break the requirements into a Stride batch JSON, and `/stride-ideation:ship` to POST that batch to the Stride API.
+This plugin provides brainstorming and ideation for projects that use [Stride](https://www.stridelikeaboss.com). Run `/stride-ideation:ideate` to drive an interactive ideation session that produces a committed requirements markdown document. Stop there if you just want a written spec — or run `/stride-ideation:decompose` to break the requirements into a Stride batch JSON, and `/stride-ideation:ship` to POST that batch to the Stride API.
 
 ## Installation
 
