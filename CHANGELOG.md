@@ -4,6 +4,28 @@ All notable changes to the `stride-ideation` plugin are documented here.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2026-05-13
+
+### Added
+
+- **`--profile <name>` flag on `/stride-ideation:ideate`.** Selects one of three named profiles that shape which forcing questions run inside the rounds and which optional sections the document may include. The seven hard-gated section names and the mandatory round-3 framing and round-4 premortem are identical across all profiles — only the augmentations change. Pick a profile based on the audience and the part of the framing that's riskiest:
+  - **`lean`** (default). The bare-minimum round structure — no profile-specific forcing questions, no profile-specific optional sections, no profile-specific reviewer checks. Use for engineering-only audiences, small topics, and the shortest path to a committed doc. Byte-for-byte equivalent to v0.3.0 behavior.
+  - **`product`**. Adds a Round-1 JTBD (jobs-to-be-done) four-forces forcing question framing Problem and Goal around the user's job, the forces pulling them toward and away from a solution, and the habits they're abandoning. Unlocks an optional **Concrete Example** section (named user, trigger, current bad path, desired good path). The advisory reviewer rubric gains two profile-aware checks (JTBD framing presence, Concrete Example presence). Source technique: Clayton Christensen + Bob Moesta's *Jobs to Be Done* — for product/design audiences, persona-bound scenarios beat feature lists for framing trade-offs.
+  - **`discovery`**. Adds a Round-2 Why-now + Alternative-options forcing question that asks what makes this problem worth solving *now* (versus later) and which other options were considered and rejected. The advisory reviewer rubric gains one profile-aware check (Why-now content presence). The Why-now content folds into the existing Problem and Assumptions sections — no new optional section. Source techniques: the Sequoia "Why now?" memo tradition (urgency-of-timing as a first-class section of an investment thesis) and Specification by Example's emphasis on naming alternatives that were rejected (Gojko Adzic).
+- **Profile-aware advisory checks in `agents/requirements-reviewer.md`.** Three new conditional checks: Concrete Example presence (product-only), JTBD-derived Problem framing (product-only), Why-now content (discovery-only). All three are advisory, never blocking — they extend the existing advisory rubric and do NOT introduce a new hard-block path. The reviewer's calling contract (at most one refinement round; never edits the document) is unchanged.
+
+### Changed
+
+- The round-summary table in `skills/stride-ideation/SKILL.md` gains a per-profile **augmentations** column. The default-focus column is identical across all profiles — only the augmentations differ. Under `lean`, the augmentation column is empty (byte-for-byte v0.3.0).
+- The plugin description in `.claude-plugin/plugin.json` and the slash-command frontmatter on `commands/ideate.md` now mention the `--profile` flag and name the three profiles.
+- The README gains a Profiles subsection (one paragraph + a three-row table) showing what each profile adds and when to pick it.
+
+### Migration
+
+- **No migration needed.** `--profile` is optional and defaults to `lean`. v0.3.0 invocations of `/stride-ideation:ideate` are byte-identical under v0.4.0 — the round loop, the seven gated sections, the round-3 framing, the round-4 premortem, and the advisory reviewer pass all behave exactly as in v0.3.0 when the flag is omitted. Backward compatibility under the default profile is a load-bearing claim of this release.
+- **No command surface changes beyond the optional flag.** The two slash commands (`/ideate`, `/stridify`) and their existing arguments are byte-identical to v0.3.0. The new flag is purely additive.
+- **In-flight v0.3.0 requirements docs** (docs that pass the v0.3.0 hard gate but were produced without an explicit profile) are valid v0.4.0 lean documents — no rework needed.
+
 ## [0.3.0] - 2026-05-13
 
 ### Added

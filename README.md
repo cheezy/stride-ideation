@@ -16,7 +16,7 @@ The plugin auto-discovers the two slash commands, the ideation skill, and the su
 ## The two commands
 
 ```text
-/stride-ideation:ideate [<topic>] [--continue <path>]
+/stride-ideation:ideate [<topic>] [--continue <path>] [--profile <name>]
   Interactive ideation session. Drives a Q&A loop with you to produce a
   timestamped requirements markdown doc. Stop here if you only want a spec.
 
@@ -29,6 +29,18 @@ The plugin auto-discovers the two slash commands, the ideation skill, and the su
 
 See the design spec in the parent repo for the full ideation protocol and
 decomposer rules.
+
+## Profiles
+
+`/stride-ideation:ideate` accepts a `--profile <name>` flag that selects which forcing questions run inside the rounds and which optional sections the document may include. The seven hard-gated section names and the mandatory round-3 framing and round-4 premortem are identical across all profiles — only the augmentations change.
+
+| Profile | When to pick it | What it adds |
+|---|---|---|
+| `lean` (default) | Engineering-only audience; small topic; you want the shortest path to a committed doc | Nothing — byte-for-byte equivalent to v0.3.0 behavior |
+| `product` | Product/design in the audience; framing benefits from a persona-bound scenario | Round-1 JTBD four-forces forcing question; optional **Concrete Example** section in the doc; advisory reviewer checks for JTBD framing and Concrete Example presence |
+| `discovery` | Early-stage topic where the case-for-action is the riskiest part | Round-2 Why-now + Alternative-options forcing questions; advisory reviewer check for Why-now content |
+
+`--profile` is optional. When omitted, the lean profile applies and v0.3.0 invocations remain byte-identical — backward compatibility is preserved by default.
 
 ## Requirements
 

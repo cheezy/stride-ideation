@@ -1,7 +1,7 @@
 {
   "name": "stride-ideation",
-  "description": "Turn an idea into shipped Stride tasks. Two slash commands — /stride-ideation:ideate (interactive ideation session producing a committed requirements doc) and /stride-ideation:stridify (decomposes the requirements into a Stride batch JSON, commits it for audit, and POSTs it to the Stride API in one shot). Replaces superpowers:brainstorming for projects that use Stride.",
-  "version": "0.3.0",
+  "description": "Turn an idea into shipped Stride tasks. Two slash commands — /stride-ideation:ideate (interactive ideation session producing a committed requirements doc; supports --profile lean|product|discovery to select the round structure and reviewer rubric) and /stride-ideation:stridify (decomposes the requirements into a Stride batch JSON, commits it for audit, and POSTs it to the Stride API in one shot). Replaces superpowers:brainstorming for projects that use Stride.",
+  "version": "0.4.0",
   "author": {
     "name": "Jeff Morgan",
     "email": "cheezy@letstango.ca"
