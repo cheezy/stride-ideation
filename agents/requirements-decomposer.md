@@ -1,7 +1,7 @@
 ---
 name: requirements-decomposer
 description: |
-  Use this agent to decompose a stride-ideation requirements markdown document into a Stride batch JSON document conforming to the POST /api/tasks/batch shape. Invoke from the /stride-ideation:decompose slash command (which reads the requirements doc, dispatches this agent, and post-processes the result by stamping source_spec and source_spec_sha256 at the JSON root). The agent receives the full requirements doc text as input — it does NOT have access to a project codebase, source control, or any external system. Its only output is a single fenced ```json document; no prose, no commentary. Example: <example>Context: User just ran /stride-ideation:ideate and committed a requirements doc, and now wants to break it into Stride tasks. user: "Run /stride-ideation:decompose docs/superpowers/specs/2026-05-12T130000-add-notifications-requirements.md" assistant: "Dispatching requirements-decomposer with the requirements doc as input." <commentary>The agent reads the doc, identifies the natural seams (Phoenix default: data → context → UI), produces ~1-3 hour tasks of complexity "small", and returns a goals array. The calling command then stamps source_spec and source_spec_sha256 before writing the JSON to disk.</commentary></example>
+  Use this agent to decompose a stride-ideation requirements markdown document into a Stride batch JSON document conforming to the POST /api/tasks/batch shape. Invoke from the /stride-ideation:stridify slash command (which reads the requirements doc, dispatches this agent, post-processes the result by stamping source_spec and source_spec_sha256 at the JSON root, then writes, commits, and POSTs the batch in the same invocation). The agent receives the full requirements doc text as input — it does NOT have access to a project codebase, source control, or any external system. Its only output is a single fenced ```json document; no prose, no commentary. Example: <example>Context: User just ran /stride-ideation:ideate and committed a requirements doc, and now wants to break it into Stride tasks and ship them. user: "Run /stride-ideation:stridify docs/superpowers/specs/2026-05-12T130000-add-notifications-requirements.md" assistant: "Dispatching requirements-decomposer with the requirements doc as input." <commentary>The agent reads the doc, identifies the natural seams (Phoenix default: data → context → UI), produces ~1-3 hour tasks of complexity "small", and returns a goals array. The calling command then stamps source_spec and source_spec_sha256, writes the batch JSON, commits it, and POSTs to the Stride API in the same invocation.</commentary></example>
 model: inherit
 tools: Read, Grep
 ---
@@ -113,7 +113,7 @@ Other format gotchas worth pinning explicitly:
 
 ## What you MUST NOT emit
 
-The calling command (`/stride-ideation:decompose`) and the Stride API enforce strict allow-lists. Do not include any of the following in your output:
+The calling command (`/stride-ideation:stridify`) and the Stride API enforce strict allow-lists. Do not include any of the following in your output:
 
 - **`source_spec`** and **`source_spec_sha256`** — the calling command stamps these at the JSON root after you return. If you emit them, the orchestrator overwrites them.
 - **`identifier`** (W-/D-/G-prefixed strings) — auto-generated server-side. Specifying one fails the batch.
@@ -131,7 +131,7 @@ Return a **single fenced `json` document**. No prose before or after. The fence 
 
 | Key | Required | Type | Notes |
 |---|---|---|---|
-| `decomposition_notes` | yes | string | Explains seam choices and any cross-goal claim ordering. Stripped by `/ship` before POST. |
+| `decomposition_notes` | yes | string | Explains seam choices and any cross-goal claim ordering. Stripped by `/stridify` before POST (kept on disk in the audit JSON). |
 | `goals` | yes | array of goal objects | Conforms to the skeleton above. |
 
 That is the entire root shape. Do NOT include `source_spec` or `source_spec_sha256` — the orchestrator injects them after you return.

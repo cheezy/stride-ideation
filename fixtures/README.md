@@ -4,8 +4,8 @@ Smoke-test and regression fixtures for the `stride-ideation` plugin. Each fixtur
 
 The fixtures serve two purposes:
 
-1. **Calibration reference** — when an implementer is unsure what "good" `/ideate` or `/decompose` output looks like for their case, they can open the closest-matching fixture pair as a reference.
-2. **Regression check** — when the `requirements-decomposer` agent prompt changes, re-run `/decompose` against each `*-requirements.md` and diff the result against the committed `*-stride-batch.json`. Material drift means the prompt change altered observable behavior — that may be intentional, but it should be explicit.
+1. **Calibration reference** — when an implementer is unsure what "good" `/ideate` or `/stridify` output looks like for their case, they can open the closest-matching fixture pair as a reference.
+2. **Regression check** — when the `requirements-decomposer` agent prompt changes, re-run `/stridify` against each `*-requirements.md` and diff the result against the committed `*-stride-batch.json`. Material drift means the prompt change altered observable behavior — that may be intentional, but it should be explicit. (Note: `/stridify` also POSTs the batch to the Stride API, so use a non-prod workspace when running regressions.)
 
 The fixtures are **not** training data. The decomposer prompt should produce these shapes from first principles, not by memorizing these specific outputs. If a prompt change requires rewriting these fixtures to match, that is a yellow flag — confirm the prompt change is more general than just "match the fixtures."
 
@@ -53,10 +53,11 @@ for f in fixtures/*-stride-batch.json; do
   python3 lib/validate_batch.py "$f" || echo "FAILED: $f"
 done
 
-# Re-run /decompose against each requirements fixture and diff
-# (interactive — requires a Claude Code session)
-# /stride-ideation:decompose fixtures/2026-05-12T120000-dark-mode-toggle-requirements.md
+# Re-run /stridify against each requirements fixture and diff
+# (interactive — requires a Claude Code session; will also POST to the
+# Stride API, so prefer a non-prod workspace for diffing-only runs)
+# /stride-ideation:stridify fixtures/2026-05-12T120000-dark-mode-toggle-requirements.md
 # diff fixtures/2026-05-12T120000-dark-mode-toggle-stride-batch.json <newly-written-file>
 ```
 
-When you intentionally update a fixture (because the requirements fixture changed, or because a prompt update legitimately produces a different shape), recompute the `source_spec_sha256` and update the committed batch file in the same commit. The stamping pipeline in `commands/decompose.md` handles this automatically when run through the slash command.
+When you intentionally update a fixture (because the requirements fixture changed, or because a prompt update legitimately produces a different shape), recompute the `source_spec_sha256` and update the committed batch file in the same commit. The stamping pipeline in `commands/stridify.md` handles this automatically when run through the slash command.

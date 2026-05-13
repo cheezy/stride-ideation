@@ -10,7 +10,7 @@ Captured at `2026-05-12T19:42:00Z` against the dev plugin checkout. The end-to-e
 | 2 | `lib/drift_check.py` against the same fixture | no drift (stamped `source_spec_sha256` matches the recomputed SHA of `fixtures/2026-05-12T120000-dark-mode-toggle-requirements.md`) |
 | 3 | `lib/read_auth.py` against a fixture `.stride_auth.md` | extracts `STRIDE_API_URL` and the `API Token` line (NOT the `Local API Token` line — the negative-lookbehind in `read_auth.py` does the right thing) |
 | 4 | `lib/strip_audit_fields.py` against the same batch | `source_spec`, `source_spec_sha256`, `decomposition_notes` removed from the in-memory payload; `goals` preserved; on-disk file byte-for-byte unchanged |
-| 5 | Response-rendering Python from `commands/ship.md` against a canned 2xx body | renders a two-column `G/W` identifier table |
+| 5 | Response-rendering Python from `commands/stridify.md` against a canned 2xx body | renders a two-column `G/W` identifier table |
 
 Result: **10 ✓, 0 ✗**, `10 passed, 0 failed`.
 

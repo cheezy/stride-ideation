@@ -1,6 +1,6 @@
 ---
 name: stride-ideation
-description: Use when the user has a fuzzy idea, a new feature initiative, or a pre-decomposition scoping need and wants a written requirements document — drives a round-based question loop (up to 4 batched questions per round, with a mandatory round-3 framing checkpoint), hard-gates the 7 required sections (Goal, Problem, Outcome, Assumptions, Constraints, Non-goals, Success Metrics), auto-dispatches an advisory requirements-reviewer pass, then commits a timestamped requirements doc and STOPS. The terminal state is the written document — the skill never pushes the user toward /decompose, /ship, or any other next step.
+description: Use when the user has a fuzzy idea, a new feature initiative, or a pre-decomposition scoping need and wants a written requirements document — drives a round-based question loop (up to 4 batched questions per round, with a mandatory round-3 framing checkpoint), hard-gates the 7 required sections (Goal, Problem, Outcome, Assumptions, Constraints, Non-goals, Success Metrics), auto-dispatches an advisory requirements-reviewer pass, then commits a timestamped requirements doc and STOPS. The terminal state is the written document — the skill never pushes the user toward /stridify or any other next step.
 skills_version: "1.0"
 ---
 
@@ -91,9 +91,9 @@ After the file is written and committed the skill prints exactly:
 
 > "Requirements written to `<path>`."
 > "You can stop here — the doc is the deliverable."
-> "Or, to break this down into Stride tasks, run `/stride-ideation:decompose <path>` next."
+> "Or, to decompose this into Stride tasks and ship them in one shot, run `/stride-ideation:stridify <path>` next."
 
-Then the skill **stops**. It does not auto-invoke `/decompose`, does not propose follow-on tasks, does not suggest implementation steps. The terminal state is the written document. The user decides what happens next.
+Then the skill **stops**. It does not auto-invoke `/stridify`, does not propose follow-on tasks, does not suggest implementation steps. The terminal state is the written document. The user decides what happens next.
 
 This is a deliberate contrast with brainstorming skills that lock terminal state to a downstream invocation. Stride ideation treats the requirements doc as a standalone deliverable.
 
@@ -101,6 +101,5 @@ This is a deliberate contrast with brainstorming skills that lock terminal state
 
 - **Question-generation logic** — see `commands/ideate.md` for how the ideation command resolves topic, manages `--continue`, and decides which questions to batch in each round.
 - **Reviewer rubric** — see `agents/requirements-reviewer.md` for the exact rubric the reviewer applies to a draft.
-- **Decomposition into Stride tasks** — see `commands/decompose.md` and `agents/requirements-decomposer.md`. The ideation skill stops at the requirements doc.
-- **Shipping to Stride** — see `commands/ship.md`. Out of scope for ideation.
+- **Decomposition into Stride tasks AND shipping to Stride in one shot** — see `commands/stridify.md` and `agents/requirements-decomposer.md`. The ideation skill stops at the requirements doc.
 - **Filename generation** — see `lib/filename.sh`. The skill defers to `sti_unique_path` and never computes filenames itself.

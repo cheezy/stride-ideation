@@ -4,6 +4,24 @@ All notable changes to the `stride-ideation` plugin are documented here.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0] - 2026-05-13
+
+### Changed
+
+- **BREAKING: Three-command surface collapsed to two.** The standalone `/stride-ideation:decompose` and `/stride-ideation:ship` commands are removed; both flows are merged into a single new command `/stride-ideation:stridify <path-to-requirements.md>` that runs the full pipeline end-to-end (validate → preflight auth → dispatch decomposer → stamp audit metadata → write + commit batch JSON → strip audit fields → POST → render G/W identifiers). The intermediate `*-stride-batch.json` artifact and its commit are preserved exactly as before — the merge is a UX collapse, not a data-model change.
+- **Auth read is now a preflight step** (Step 3 of `/stridify`, before the decomposer dispatch) so a misconfigured `.stride_auth.md` fails fast without first burning a subagent pass and writing a batch JSON that can't be shipped. The historical `/ship`-side late auth read is gone.
+- **Drift check removed.** The historical `/ship` command ran a `source_spec_sha256` drift check to catch the case where a user hand-edited the requirements doc between `/decompose` and `/ship`. In the merged `/stridify` flow the batch JSON is written by the same invocation, so source drift cannot have occurred and the check is omitted with an explicit one-line justification in the command body.
+- **`requirements-decomposer` and `requirements-reviewer` agents are unchanged** — only the outer command surface changes. The `lib/` helpers (`validate_batch.py`, `read_auth.py`, `strip_audit_fields.py`, `filename.sh`) are reused verbatim by `/stridify`. `lib/drift_check.py` is no longer called by any shipping command (all 7 of its unit tests still pass; left in place for potential future reuse).
+- All internal cross-references (in `commands/ideate.md`, `skills/stride-ideation/SKILL.md`, both agent prompts, the fixture README + smoke-test note, and the marketplace manifest description) have been updated to reference `/stride-ideation:stridify`.
+
+### Migration
+
+- Replace any scripted invocations of the old two-command form with the new one-command form:
+  - Before: `/stride-ideation:decompose <doc>` then `/stride-ideation:ship <batch-json>`
+  - After: `/stride-ideation:stridify <doc>` (one invocation, same on-disk artifacts as before)
+- If you previously ran `/stride-ideation:decompose` and want to ship the existing on-disk batch JSON without re-decomposing, the old `/ship`-style invocation is no longer available. The `lib/strip_audit_fields.py` and `curl … /api/tasks/batch` paths are still available as a manual escape hatch — the recipe is documented inline in `commands/stridify.md` Steps 9a-9c.
+- Re-installation: `/plugin update stride-marketplace` once the marketplace manifest catches up to the renamed plugin entry, OR `/plugin uninstall stride-ideation` then `/plugin install stride-ideation@stride-marketplace` for a clean re-install.
+
 ## [0.1.0] - 2026-05-12
 
 Initial public release. Distributed via [stride-marketplace](https://github.com/cheezy/stride-marketplace); install with:

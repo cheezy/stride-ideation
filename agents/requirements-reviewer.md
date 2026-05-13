@@ -45,7 +45,7 @@ After the per-section pass, run these checks across the document:
 2. **Goal ⇄ Non-goals consistency.** If achieving the goal as written would also achieve something listed as a non-goal, flag the contradiction.
 3. **Success Metrics ⇄ Outcome consistency.** Every metric should be evidence that the outcome occurred. A metric that wouldn't change even if the outcome did is a wrong metric.
 4. **Constraints ⇄ Goal feasibility.** If the constraints make the goal physically impossible, flag it — the user has under-specified one side or the other.
-5. **Scope-too-large signal.** If the document describes work that obviously spans multiple distinct goals (3+ orthogonal feature areas, 25+ hours of plausible work, multiple stakeholder groups with different priorities), surface this as a **Scope warning** — not as a blocker, but as a "consider splitting before /decompose" note.
+5. **Scope-too-large signal.** If the document describes work that obviously spans multiple distinct goals (3+ orthogonal feature areas, 25+ hours of plausible work, multiple stakeholder groups with different priorities), surface this as a **Scope warning** — not as a blocker, but as a "consider splitting before /stridify" note.
 
 ## Ambiguity check
 

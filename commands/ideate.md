@@ -1,5 +1,5 @@
 ---
-description: Drive an interactive ideation session that turns a fuzzy idea into a committed requirements markdown document. Supports --continue <path> to refine a prior requirements doc. Hard-gated by the stride-ideation skill on the seven required sections; terminal state is the written doc (does NOT auto-invoke /decompose).
+description: Drive an interactive ideation session that turns a fuzzy idea into a committed requirements markdown document. Supports --continue <path> to refine a prior requirements doc. Hard-gated by the stride-ideation skill on the seven required sections; terminal state is the written doc (does NOT auto-invoke /stridify).
 allowed-tools: Bash(date:*), Bash(git:*), Bash(. *:*), Bash(bash:*), Read, Write, Glob, Grep, Skill, Agent
 argument-hint: "[<topic>] [--continue <path>]"
 ---
@@ -170,12 +170,11 @@ Print **exactly** these three lines, substituting the resolved path:
 
 > Requirements written to `<TARGET_PATH>`.
 > You can stop here — the doc is the deliverable.
-> Or, to break this down into Stride tasks, run `/stride-ideation:decompose <TARGET_PATH>` next.
+> Or, to decompose this into Stride tasks and ship them in one shot, run `/stride-ideation:stridify <TARGET_PATH>` next.
 
-Do NOT add follow-up suggestions, do NOT auto-invoke `/decompose`, do NOT propose implementation steps. The terminal state is the written document.
+Do NOT add follow-up suggestions, do NOT auto-invoke `/stridify`, do NOT propose implementation steps. The terminal state is the written document.
 
 ## What this command does NOT do
 
-- Decomposition into Stride tasks — see `/stride-ideation:decompose`.
-- Shipping to a Stride workspace — see `/stride-ideation:ship`.
+- Decomposition into Stride tasks AND shipping to a Stride workspace in one shot — see `/stride-ideation:stridify`.
 - Modifying any file other than the new requirements doc — pre-existing files (including a `--continue` source document) are read-only.
