@@ -43,7 +43,7 @@ If your project already uses Stride, `stride-ideation` supersedes `superpowers:b
 |---|---|---|
 | Terminal state | Funnels into the `writing-plans` skill | Stops at the committed requirements doc |
 | Question style | One question at a time | Batched (up to 4 per round, `preview` for visual options) |
-| Hard gates | Loose — any approved design proceeds | Seven required sections, each must have substantive content |
+| Hard gates | Loose — any approved design proceeds | Seven required sections, each must have substantive content; Assumptions must be ranked with the riskiest marked and include premortem-derived failure modes; Success Metrics must include both leading and lagging indicators |
 | Output | A design conversation | A single timestamped `*-requirements.md` |
 | Decomposition + shipping | Manual follow-up | Optional second command (`/stride-ideation:stridify`) — one-shot decompose + commit + POST |
 

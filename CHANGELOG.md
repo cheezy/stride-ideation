@@ -4,6 +4,30 @@ All notable changes to the `stride-ideation` plugin are documented here.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2026-05-13
+
+### Added
+
+- **Round 4 — Premortem (mandatory).** After the round-3 framing checkpoint and before the advisory `requirements-reviewer` pass, `/stride-ideation:ideate` now runs a single batched premortem question that asks the user to invert the framing ("imagine it's six months after we ship and this initiative quietly underperformed — what's the most likely reason?"). The answer is folded into the Assumptions section as one or more failure-mode entries. Source technique: Gary Klein's *premortem* (Harvard Business Review, 2007) — the round-1-to-3 loop reliably surfaces expected design properties rather than the failure modes the design depends on NOT happening, and the premortem inverts that bias before the doc is committed. The round runs even on `--continue` mode — refining a v0.2.0 doc is exactly when the premortem catches things, so there is no skip carve-out.
+- **Riskiest-assumption ranking.** The Assumptions section is now hard-gated on shape, not just presence: entries must be ordered highest-to-lowest risk and exactly one must be marked `(R)` (or `**(riskiest)**`). Either marker form is accepted by the reviewer rubric. The marker is what makes the ranking auditable — a sorted list with no marker reads the same as an unsorted one. Source technique: Giff Constable's *riskiest assumption test* (RAT) — focusing scarce validation effort on the one assumption whose failure changes the design more than any other.
+- **Leading + lagging Success Metrics.** The Success Metrics section is now hard-gated on shape: it must contain at least one leading indicator (observable while the work is in flight, predicts the outcome) AND at least one lagging indicator (the outcome itself, observable only after it has occurred). All-leading or all-lagging metrics fail the gate. Source technique: leading-vs-lagging indicator literature commonly cited in the OKR / KPI world — all-lagging metrics can only be observed after it is too late to correct, and all-leading metrics never confirm the outcome itself.
+
+### Changed
+
+- `requirements-reviewer.md` rubric: the **Assumptions** row gains two advisory checks (no entry appears premortem-derived; no entry is marked riskiest) and the **Success Metrics** row gains one advisory check (only leading-or-only-lagging indicators). All three additions are advisory-only — they extend the existing advisory rubric and do NOT introduce a new hard-block path. The reviewer's calling contract (at most one refinement round; never edits the document) is unchanged.
+- The round-summary table in `skills/stride-ideation/SKILL.md` is reshaped: Round 4 is now Premortem; gap-fill moves to Round 5+. Round 5+ remains a single bucket — no further structural slicing.
+- The skill `description:` frontmatter field is updated to mention the mandatory round-4 premortem and the new shape requirements on Assumptions and Success Metrics; the seven required-section names themselves are unchanged.
+
+### Migration
+
+- **In-flight v0.2.0 requirements docs** (docs that pass the v0.2.0 hard gate but pre-date the new shape requirements) will fail the v0.3.0 reviewer rubric with three advisory findings — they will NOT be hard-blocked from being written or stridified, but the new advisory pass will flag the gaps. To bring an existing doc up to v0.3.0:
+  ```bash
+  /stride-ideation:ideate --continue path/to/<existing>-requirements.md
+  ```
+  The `--continue` mode preserves the existing content as read-only context and emits a sibling timestamped doc with the round-4 premortem run, the Assumptions ranked, and any missing indicator type added to Success Metrics. The source doc is never modified.
+- The on-disk template in `commands/ideate.md` Step 6 has changed: the Success metrics block now shows labeled leading / lagging sub-bullets, and the Assumptions block shows ordered entries with a `(R)` marker on the riskiest. Documents written prior to v0.3.0 do not match this template but remain valid input to `/stride-ideation:stridify` — the decomposer only requires the seven gated sections to be present and substantive.
+- **No command surface changes.** The two slash commands (`/ideate`, `/stridify`) and their argument shapes are byte-identical to v0.2.0.
+
 ## [0.2.0] - 2026-05-13
 
 ### Changed
