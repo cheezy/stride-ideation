@@ -32,10 +32,10 @@ The document MUST contain seven hard-gated sections. For each, ask the rubric qu
 | **Goal** | The "goal" is a feature, not an outcome ("ship X" instead of "users can do Y faster"). The goal restates the title and adds no new information. |
 | **Problem** | The problem is a wishlist ("we want X") rather than a description of what hurts today. The problem and the goal are the same sentence reversed. |
 | **Outcome** | The outcome is identical to the goal. The outcome can't be observed (no one would notice if it didn't happen). |
-| **Assumptions** | No assumptions listed (every initiative has at least one). An "assumption" is actually a constraint or a non-goal mislabeled. An assumption is so universally true it adds no information ("users have computers"). |
+| **Assumptions** | No assumptions listed (every initiative has at least one). An "assumption" is actually a constraint or a non-goal mislabeled. An assumption is so universally true it adds no information ("users have computers"). No entry appears premortem-derived — every assumption reads as an expected design property (e.g., "the mailer works") rather than a failure mode the design depends on NOT happening; surface this as an advisory note because the round-4 premortem is what fills this gap. No entry is marked riskiest with either `(R)` or `**(riskiest)**` — flag the absence of a ranking marker because a sorted list without a marker reads the same as an unsorted list. |
 | **Constraints** | No constraints listed. A "constraint" is actually a preference ("we'd prefer X"). |
 | **Non-goals** | No non-goals listed. A "non-goal" is reachable as a side effect of the goal — i.e., the goal-and-non-goal pair contradicts. |
-| **Success Metrics** | No metric is measurable (no number, no threshold, no observable proxy). A metric measures a vanity property unrelated to the goal. |
+| **Success Metrics** | No metric is measurable (no number, no threshold, no observable proxy). A metric measures a vanity property unrelated to the goal. The section has only lagging indicators (outcome-only, observable after the fact) or only leading indicators (in-flight proxies, no outcome measurement); flag the missing indicator type as an advisory note because all-lagging metrics can only be measured after it is too late to correct and all-leading metrics never confirm the outcome itself. |
 
 ## Cross-section checks
 

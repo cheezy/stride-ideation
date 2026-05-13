@@ -118,10 +118,16 @@ The skill returns prose for each section but the on-disk format is fixed by the 
 <outcome, not feature>
 
 ## Success metrics
-- <bulleted, each measurable>
+- **leading indicators** (observable while the work is in flight, predict the outcome):
+  - <bulleted, each measurable>
+- **lagging indicators** (the outcome itself, observable only after it has occurred):
+  - <bulleted, each measurable>
 
 ## Assumptions
-- <bullets>
+*Ordered highest to lowest risk; the riskiest entry is marked `(R)` (or `**(riskiest)**`).*
+- <riskiest assumption> (R)
+- <next-riskiest assumption>
+- <remaining assumptions, in decreasing risk>
 
 ## Constraints
 - <bullets — non-negotiable>
