@@ -1,7 +1,7 @@
 ---
-description: Drive an interactive ideation session that turns a fuzzy idea into a committed requirements markdown document. Supports --continue <path> to refine a prior requirements doc and --profile <lean|product|discovery> to select the round structure and reviewer rubric (default lean = v0.3.0 behavior). Hard-gated by the stride-ideation skill on the seven required sections; terminal state is the written doc (does NOT auto-invoke /stridify).
+description: Drive an interactive ideation session that turns a fuzzy idea into a committed requirements markdown document. Supports --continue <path> to refine a prior requirements doc and --profile <lean|product|discovery|lean-startup> to select the round structure and reviewer rubric (default lean = v0.3.0 behavior). Hard-gated by the stride-ideation skill on the seven required sections; terminal state is the written doc (does NOT auto-invoke /stridify).
 allowed-tools: Bash(date:*), Bash(git:*), Bash(. *:*), Bash(bash:*), Read, Write, Glob, Grep, Skill, Agent
-argument-hint: "[<topic>] [--continue <path>] [--profile <lean|product|discovery>]"
+argument-hint: "[<topic>] [--continue <path>] [--profile <lean|product|discovery|lean-startup>]"
 ---
 
 # /stride-ideation:ideate
@@ -17,7 +17,7 @@ Follow these steps in order. Do NOT skip steps.
 The user invoked you with `$ARGUMENTS`. Parse in this fixed order — `--continue` first, then `--profile`, then everything remaining is `TOPIC`:
 
 - If `--continue` appears, set `CONTINUE_PATH` to the value of the **next** token and remove both tokens. In `--continue` mode the topic is inherited from the source file and not re-prompted.
-- If `--profile` appears (accept both `--profile <name>` and `--profile=<name>` shapes, matching how `--continue` accepts both forms), set `PROFILE` to the parsed value and remove the consumed tokens. The accepted values are exactly `lean`, `product`, `discovery`. If the value is missing or is not one of these three, print a one-line error naming the offending value and the accepted set (e.g., `stride-ideation: unknown --profile value 'foo'; expected one of: lean, product, discovery`) and exit non-zero **before any session work begins** — do NOT prompt, do NOT default to lean on a typo, and do NOT fall through to the topic parser.
+- If `--profile` appears (accept both `--profile <name>` and `--profile=<name>` shapes, matching how `--continue` accepts both forms), set `PROFILE` to the parsed value and remove the consumed tokens. The accepted values are exactly `lean`, `product`, `discovery`, `lean-startup`. If the value is missing or is not one of these four, print a one-line error naming the offending value and the accepted set (e.g., `stride-ideation: unknown --profile value 'foo'; expected one of: lean, product, discovery, lean-startup`) and exit non-zero **before any session work begins** — do NOT prompt, do NOT default to lean on a typo, and do NOT fall through to the topic parser.
 - If `--profile` is absent, set `PROFILE` to `lean`. The `lean` profile is byte-for-byte equivalent to v0.3.0 behavior — no new questions, no new sections, no new rubric checks.
 - After both flag tokens are consumed, treat the trimmed remainder as `TOPIC`. If `CONTINUE_PATH` is set, the remainder is ignored. Otherwise, if the remainder is empty, ask the user once via `AskUserQuestion`: *"What's the topic for this ideation session?"* (free-text input).
 
@@ -94,7 +94,7 @@ Skill(skill: "stride-ideation",
 
 When `PRIOR_DOC` is non-empty, the skill starts the session with that content already loaded as context — refining and sharpening rather than re-eliciting every section from scratch. The Q&A loop, the round-3 checkpoint, the hard gates, and the advisory reviewer pass all still run; `--continue` does not lower the bar, only the starting cost.
 
-The parsed value of `--profile` from Step 1 is threaded into the skill args as `profile=<PROFILE>`. It selects which forcing questions run inside the rounds and which optional sections the document may include. See the **Profiles** subsection of `skills/stride-ideation/SKILL.md` for the per-profile augmentations. `--profile=lean` (the default) leaves the round loop unchanged from v0.3.0; `--profile=product` and `--profile=discovery` add advisory rubric checks and (for product) one optional section.
+The parsed value of `--profile` from Step 1 is threaded into the skill args as `profile=<PROFILE>`. It selects which forcing questions run inside the rounds and which optional sections the document may include. See the **Profiles** subsection of `skills/stride-ideation/SKILL.md` for the per-profile augmentations. `--profile=lean` (the default) leaves the round loop unchanged from v0.3.0; `--profile=product`, `--profile=discovery`, and `--profile=lean-startup` add advisory rubric checks and (for `product` and `lean-startup`) one optional section.
 
 The skill enforces:
 - the hard gate against premature implementation,
@@ -150,6 +150,17 @@ The skill returns prose for each section but the on-disk format is fixed by the 
 ```
 
 The seven hard-gated sections appear above the two optional ones (`Sketch`, `Open questions`). Include the optional sections only if the conversation produced substantive content for them. If the draft is missing any gated section, treat that as a skill bug and abort — do NOT paper over it by writing an incomplete doc.
+
+**Under `profile=lean-startup` only**, append one more optional section after `## Open questions` — `## MVP / Validation experiment` — produced by the Round 5 MVP-design batch. Its sub-fields, in order:
+
+- **Riskiest assumption being tested:** quote the `(R)`-marked entry from Assumptions verbatim.
+- **Experiment design:** what to build, fake, or measure to produce the validating signal.
+- **Success criteria:** observable signal that validates the assumption.
+- **Failure criteria:** observable signal that falsifies the assumption.
+- **Time box:** when results are expected.
+- **Pivot-or-persevere decision:** what happens based on result.
+
+This `MVP / Validation experiment` section is profile-conditional — under `lean`, `product`, or `discovery` it MUST NOT appear even if the user volunteered experiment-shaped content. The riskiest-assumption line is a quote of an existing Assumptions entry, not a freshly authored field; the other five sub-fields are authored from the Round 5 answers.
 
 ### Step 7: Verify the target path is still untaken
 
