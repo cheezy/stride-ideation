@@ -1,7 +1,7 @@
 ---
-description: Drive an interactive ideation session that turns a fuzzy idea into a committed requirements markdown document. Supports --continue <path> to refine a prior requirements doc. Hard-gated by the stride-ideation skill on the seven required sections; terminal state is the written doc (does NOT auto-invoke /stridify).
+description: Drive an interactive ideation session that turns a fuzzy idea into a committed requirements markdown document. Supports --continue <path> to refine a prior requirements doc and --profile <lean|product|discovery> to select the round structure and reviewer rubric (default lean = v0.3.0 behavior). Hard-gated by the stride-ideation skill on the seven required sections; terminal state is the written doc (does NOT auto-invoke /stridify).
 allowed-tools: Bash(date:*), Bash(git:*), Bash(. *:*), Bash(bash:*), Read, Write, Glob, Grep, Skill, Agent
-argument-hint: "[<topic>] [--continue <path>]"
+argument-hint: "[<topic>] [--continue <path>] [--profile <lean|product|discovery>]"
 ---
 
 # /stride-ideation:ideate
@@ -14,10 +14,12 @@ Follow these steps in order. Do NOT skip steps.
 
 ### Step 1: Parse `$ARGUMENTS`
 
-The user invoked you with `$ARGUMENTS`. Walk the tokens in any order:
+The user invoked you with `$ARGUMENTS`. Parse in this fixed order — `--continue` first, then `--profile`, then everything remaining is `TOPIC`:
 
-- If `--continue` appears, set `CONTINUE_PATH` to the value of the **next** token and remove both tokens. The remaining tokens (if any) are ignored — in `--continue` mode the topic is inherited from the source file and not re-prompted.
-- If `--continue` is absent, treat the trimmed remainder as `TOPIC`. If the remainder is empty, ask the user once via `AskUserQuestion`: *"What's the topic for this ideation session?"* (free-text input).
+- If `--continue` appears, set `CONTINUE_PATH` to the value of the **next** token and remove both tokens. In `--continue` mode the topic is inherited from the source file and not re-prompted.
+- If `--profile` appears (accept both `--profile <name>` and `--profile=<name>` shapes, matching how `--continue` accepts both forms), set `PROFILE` to the parsed value and remove the consumed tokens. The accepted values are exactly `lean`, `product`, `discovery`. If the value is missing or is not one of these three, print a one-line error naming the offending value and the accepted set (e.g., `stride-ideation: unknown --profile value 'foo'; expected one of: lean, product, discovery`) and exit non-zero **before any session work begins** — do NOT prompt, do NOT default to lean on a typo, and do NOT fall through to the topic parser.
+- If `--profile` is absent, set `PROFILE` to `lean`. The `lean` profile is byte-for-byte equivalent to v0.3.0 behavior — no new questions, no new sections, no new rubric checks.
+- After both flag tokens are consumed, treat the trimmed remainder as `TOPIC`. If `CONTINUE_PATH` is set, the remainder is ignored. Otherwise, if the remainder is empty, ask the user once via `AskUserQuestion`: *"What's the topic for this ideation session?"* (free-text input).
 
 Validate `CONTINUE_PATH` immediately:
 
@@ -83,14 +85,16 @@ In fresh-session mode, leave `PRIOR_DOC` empty.
 
 ### Step 5: Invoke the `stride-ideation` skill
 
-Use the `Skill` tool to invoke `stride-ideation`, passing the topic, locked slug, session timestamp, target path, and the prior document (if any):
+Use the `Skill` tool to invoke `stride-ideation`, passing the topic, locked slug, session timestamp, target path, the prior document (if any), and the resolved profile:
 
 ```
 Skill(skill: "stride-ideation",
-      args: "topic=<TOPIC>; slug=<SLUG>; session_ts=<SESSION_TS>; target_path=<TARGET_PATH>; prior_doc=<PRIOR_DOC>")
+      args: "topic=<TOPIC>; slug=<SLUG>; session_ts=<SESSION_TS>; target_path=<TARGET_PATH>; prior_doc=<PRIOR_DOC>; profile=<PROFILE>")
 ```
 
 When `PRIOR_DOC` is non-empty, the skill starts the session with that content already loaded as context — refining and sharpening rather than re-eliciting every section from scratch. The Q&A loop, the round-3 checkpoint, the hard gates, and the advisory reviewer pass all still run; `--continue` does not lower the bar, only the starting cost.
+
+The parsed value of `--profile` from Step 1 is threaded into the skill args as `profile=<PROFILE>`. It selects which forcing questions run inside the rounds and which optional sections the document may include. See the **Profiles** subsection of `skills/stride-ideation/SKILL.md` for the per-profile augmentations. `--profile=lean` (the default) leaves the round loop unchanged from v0.3.0; `--profile=product` and `--profile=discovery` add advisory rubric checks and (for product) one optional section.
 
 The skill enforces:
 - the hard gate against premature implementation,

@@ -1,6 +1,6 @@
 ---
 name: stride-ideation
-description: Use when the user has a fuzzy idea, a new feature initiative, or a pre-decomposition scoping need and wants a written requirements document — drives a round-based question loop (up to 4 batched questions per round, with a mandatory round-3 framing checkpoint and a mandatory round-4 premortem), hard-gates the 7 required sections (Goal, Problem, Outcome, Assumptions, Constraints, Non-goals, Success Metrics) with shape requirements on Assumptions (ranked, riskiest marked, premortem-derived) and Success Metrics (both leading and lagging indicators), auto-dispatches an advisory requirements-reviewer pass, then commits a timestamped requirements doc and STOPS. The terminal state is the written document — the skill never pushes the user toward /stridify or any other next step.
+description: Use when the user has a fuzzy idea, a new feature initiative, or a pre-decomposition scoping need and wants a written requirements document — drives a round-based question loop (up to 4 batched questions per round, with a mandatory round-3 framing checkpoint and a mandatory round-4 premortem) under a named profile (lean / product / discovery), hard-gates the 7 required sections (Goal, Problem, Outcome, Assumptions, Constraints, Non-goals, Success Metrics) with shape requirements on Assumptions (ranked, riskiest marked, premortem-derived) and Success Metrics (both leading and lagging indicators), auto-dispatches an advisory requirements-reviewer pass with profile-aware checks, then commits a timestamped requirements doc and STOPS. The terminal state is the written document — the skill never pushes the user toward /stridify or any other next step.
 skills_version: "1.0"
 ---
 
@@ -46,17 +46,31 @@ Additionally:
 - The user is mid-implementation and needs course-correction, not requirements.
 - The user is doing exploratory code reading or research — that is not an ideation task.
 
+## Profiles
+
+The skill receives a `profile=<name>` parameter from the calling command. The profile selects which forcing questions run inside the rounds and which optional sections the document may include. The seven hard-gated section names and the round-3 framing checkpoint and round-4 premortem are **identical across all profiles** — the profile only adjusts what additional content the rounds elicit and what the advisory reviewer flags. Profiles do NOT overlap: each augmentation belongs to exactly one profile.
+
+The three profiles:
+
+- **`lean`** (default — applied when `profile=` is absent or empty). The bare-minimum round structure: no profile-specific forcing questions, no profile-specific optional sections, no profile-specific reviewer checks. `profile=lean` is byte-for-byte equivalent to v0.3.0 behavior. Use this when the topic is small, the audience is engineering-only, or the user wants the shortest path to a committed doc.
+- **`product`**. Adds a JTBD (jobs-to-be-done) four-forces forcing question to Round 1, framing Problem and Goal around the user's job, the forces pulling them toward and away from a solution, and the habits they're abandoning. Unlocks the optional **Concrete Example** section in the document (a single named scenario with the user, the trigger, the current bad path, and the desired good path). The reviewer flags missing or thin Concrete Example content and missing JTBD framing — both as advisory, never blocking. Use this when the audience includes product/design and the framing benefits from a concrete persona-bound scenario.
+- **`discovery`**. Adds a Why-now + Alternative-options forcing question to Round 2, asking what makes this problem worth solving *now* versus later, and which other options were considered and rejected. The reviewer flags missing Why-now content as advisory, never blocking. No new optional sections — the Why-now content folds into the existing Problem and Assumptions sections. Use this when the topic is early-stage and the case-for-action is the riskiest part of the framing.
+
+The default `lean` profile is the safe choice when nothing else applies. The profile is locked at command invocation time and does not change mid-session.
+
 ## The questioning loop
 
 A **round** is one batched `AskUserQuestion` invocation, containing one to four related questions. Rounds proceed until each of the seven required sections has draft content; a typical session uses three to five rounds.
 
-| Round | Default focus |
-|---|---|
-| 1 | Goal, Problem, Outcome — what's being built and why |
-| 2 | Assumptions, Constraints, Non-goals — boundary conditions |
-| 3 | Success Metrics + framing checkpoint (see below) |
-| 4 | Premortem — challenge Assumptions, fold failure modes back in (see below) |
-| 5+ | Gap-fill for whichever sections still lack substance |
+| Round | Default focus (all profiles) | Profile-specific augmentations |
+|---|---|---|
+| 1 | Goal, Problem, Outcome — what's being built and why | `product`: also runs JTBD four-forces forcing question |
+| 2 | Assumptions, Constraints, Non-goals — boundary conditions | `discovery`: also runs Why-now + Alternative-options forcing questions |
+| 3 | Success Metrics + framing checkpoint (see below) | (none) |
+| 4 | Premortem — challenge Assumptions, fold failure modes back in (see below) | (none) |
+| 5+ | Gap-fill for whichever sections still lack substance | (none) |
+
+The default-focus column is identical across `lean`, `product`, and `discovery` — only the augmentation column changes. `profile=lean` runs the table with the augmentation column empty (byte-for-byte v0.3.0). `profile=product` adds the Round-1 JTBD batch. `profile=discovery` adds the Round-2 Why-now + Alternative-options batch. Round 3 (framing) and Round 4 (premortem) are profile-independent and mandatory in all profiles.
 
 Each batched question MUST use `preview` content when the option set benefits from visual comparison (e.g., proposed scope boundaries, alternative success-metric framings). Plain-text choices use `preview: null` or omit the field.
 
@@ -101,10 +115,11 @@ If the reviewer reports substantive findings, the skill runs **at most one** ref
 
 The document MAY also contain:
 
-- **Sketch** — bullet-form solution shape, if the user produced one during ideation
-- **Open Questions** — items the user explicitly deferred
+- **Sketch** — bullet-form solution shape, if the user produced one during ideation (all profiles)
+- **Open Questions** — items the user explicitly deferred (all profiles)
+- **Concrete Example** — a single named scenario with the user, the trigger, the current bad path, and the desired good path (**`profile=product` only**)
 
-These are **not** gated. Include them only if the conversation generated substantive content for them.
+These are **not** gated. Include them only if the conversation generated substantive content for them. The Concrete Example section is exclusive to `profile=product` — under `lean` or `discovery` it MUST NOT appear, even if the conversation drifted toward a concrete scenario.
 
 ## Terminal state
 
