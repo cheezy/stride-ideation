@@ -4,6 +4,31 @@ All notable changes to the `stride-ideation` plugin are documented here.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - 2026-05-13
+
+### Added
+
+- **`lean-startup` profile on `/stride-ideation:ideate --profile`.** A fourth named profile that extends the `--profile` enum introduced in v0.4.0 (parser shape unchanged — only the valid-value set grows). Pick this profile when the topic is a genuinely novel feature, the team is uncertain whether the underlying user need actually exists, and the next step should be a deliberate validation experiment rather than a full build. Source techniques:
+  - **Eric Ries, *The Lean Startup*** — the Build-Measure-Learn cycle as the unit of progress on a project whose hypotheses are not yet validated. The Round-5 batch operationalizes that cycle around a single riskiest assumption rather than the project as a whole.
+  - **Steve Blank, *Customer Development*** — get out of the building and validate the riskiest assumption before scaling the build. Round 5 forces the user to design an experiment whose result triggers a deliberate pivot-or-persevere decision, not a "ship and see" outcome.
+  - **Giff Constable, *Riskiest Assumption Test* (RAT)** — already cited in v0.3.0 for the `(R)`-marker convention on the ranked Assumptions list. v0.5.0 turns that marker into the explicit anchor of a designed experiment: the Round-5 prompt MUST lift the `(R)`-marked entry verbatim and use it as the assumption-to-test.
+- **Mandatory Round 5: MVP design (lean-startup profile only).** A new round inserted between the round-4 premortem and the advisory reviewer pass. Runs as a single batched `AskUserQuestion` (≤ 4 questions — the same hard upper bound as every other round) whose answers describe the smallest experiment capable of validating or falsifying the `(R)`-marked assumption. The four questions are: (Q1) what observable signal would prove the riskiest assumption wrong? (Q2) what's the smallest/fastest thing you could build, fake, or measure to produce that signal? (Q3) how long would the experiment take and what does it cost? (Q4) what pivot-or-persevere decision will the result trigger? If no Assumptions entry is marked `(R)` (e.g., refining a pre-G104 doc under `--continue`), the round falls back to lifting the topmost entry as the anchor and notes the missing marker inline rather than aborting. Round 5 runs even on `--continue` mode under this profile — gap-fill is exactly when it catches things.
+- **Optional `MVP / Validation experiment` section in the requirements doc.** Unlocked exclusively under `profile=lean-startup`. The section opens by quoting the `(R)`-marked Assumptions entry verbatim, then lists five authored sub-fields: experiment design (what to build, fake, or measure), success criteria (observable signal that validates), failure criteria (observable signal that falsifies), time box (when results are expected), and pivot-or-persevere decision (what happens based on result). The section is optional (not part of the seven hard-gated sections) and is never gated — its absence under `lean-startup` is a reviewer advisory, not a write-blocker.
+- **Two new profile-aware advisory checks in `agents/requirements-reviewer.md`** — (a) **MVP / Validation experiment presence** flags an absent or thin MVP section under `lean-startup`, and an MVP section appearing under any other profile; (b) **falsifiable success/failure criteria** flags obviously non-falsifiable language ("users will love it", "it will be fast enough", "people will use it") in the Success/Failure criteria sub-fields. Both checks are advisory only, never blocking — they extend the existing rubric and do NOT introduce a new hard-block path. The reviewer's calling contract (at most one refinement round; never edits the document) is unchanged.
+
+### Changed
+
+- The round-summary table in `skills/stride-ideation/SKILL.md` splits the former Round 5+ row into a new Round 5 (MVP design — lean-startup only) and a renumbered Round 6+ (gap-fill). The default-focus column remains identical across all four profiles; only the augmentations column and the `lean-startup`-specific Round-5 attendance change.
+- The Profiles subsection in `skills/stride-ideation/SKILL.md` grows from three bullets to four, and the Optional auxiliary sections list grows from three entries to four. The exclusivity prose now notes that Concrete Example and MVP / Validation experiment never overlap — a single document is produced under exactly one profile and may include at most one of these two profile-exclusive sections.
+- The plugin description in `.claude-plugin/plugin.json` and the slash-command frontmatter on `commands/ideate.md` now enumerate the four profile values (`lean|product|discovery|lean-startup`).
+- The README Profiles table gains a fourth row for `lean-startup` documenting when to pick it and what it adds.
+
+### Migration
+
+- **No migration needed. The existing three profiles (`lean`, `product`, `discovery`) and the default `lean` behavior are unchanged** — `/stride-ideation:ideate` invocations that omit `--profile` or pass any of the three v0.4.0 values are byte-identical under v0.5.0. Backward compatibility under every pre-existing profile is a load-bearing claim of this release.
+- **No command surface changes beyond the new `--profile` enum value.** The two slash commands (`/ideate`, `/stridify`) and their existing arguments are byte-identical to v0.4.0. The new `lean-startup` value is purely additive.
+- **In-flight v0.4.0 requirements docs** (docs produced under `lean`, `product`, or `discovery`) are valid v0.5.0 documents — no rework needed. The `MVP / Validation experiment` section MUST NOT appear in such docs and a v0.5.0 reviewer will flag it as profile drift if it does.
+
 ## [0.4.0] - 2026-05-13
 
 ### Added
