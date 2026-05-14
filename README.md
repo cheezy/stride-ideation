@@ -48,33 +48,6 @@ decomposer rules.
 - A Stride workspace and `.stride_auth.md` in the project where you run `/stridify`
 - Claude Code (the slash commands and subagent dispatch use Claude Code primitives)
 
-## Migrating from `superpowers:brainstorming`
-
-If your project already uses Stride, `stride-ideation` supersedes `superpowers:brainstorming` for new ideation sessions. The two skills overlap in intent (turn a fuzzy idea into a written artifact) but diverge in important ways:
-
-| Concern | `superpowers:brainstorming` | `stride-ideation` |
-|---|---|---|
-| Terminal state | Funnels into the `writing-plans` skill | Stops at the committed requirements doc |
-| Question style | One question at a time | Batched (up to 4 per round, `preview` for visual options) |
-| Hard gates | Loose — any approved design proceeds | Seven required sections, each must have substantive content; Assumptions must be ranked with the riskiest marked and include premortem-derived failure modes; Success Metrics must include both leading and lagging indicators |
-| Output | A design conversation | A single timestamped `*-requirements.md` |
-| Decomposition + shipping | Manual follow-up | Optional second command (`/stride-ideation:stridify`) — one-shot decompose + commit + POST |
-
-**Which one should I use?**
-
-- **Use `stride-ideation`** when the project uses Stride and you may want to ship the requirements as kanban tasks. The two-command pipeline (ideate → stridify) is the headline value.
-- **Use `superpowers:brainstorming`** when the project does NOT use Stride, or when you want an open-ended design conversation that funnels into the `writing-plans` flow. The two skills are intentionally allowed to coexist; we are not deprecating `brainstorming` for projects where it's the right fit.
-
-**I have an in-flight `superpowers:brainstorming` spec — should I redo it with `stride-ideation`?**
-
-No. Brainstorming output is already a useful artifact. Pick it up where you left off using whichever skill matches your project:
-
-- If the brainstorm produced a written design doc that names a Problem, Goal, Constraints, and Non-goals: run `/stride-ideation:ideate --continue <path>` to refine it under the seven-section format without re-eliciting from scratch. The source document is read-only and never modified.
-- If the brainstorm output is mostly conversation history and you need a structured doc: run `/stride-ideation:ideate <topic>` fresh, but paste the relevant brainstorm snippets when the round-1 questions ask for context. Treat the brainstorm as background reading, not the deliverable.
-- If the brainstorm output is already what you want and you just need to break it down and ship it: skip `/ideate` entirely and run `/stride-ideation:stridify <path>` against the existing doc — the decomposer's only hard requirement is that the seven gated sections are present and substantive. (Heads up: `/stridify` POSTs to your Stride workspace, so use a non-prod instance if you're calibrating.)
-
-The `fixtures/` directory in this repo contains three example requirements docs showing what `/ideate` output looks like at three different scopes (small feature, multi-goal initiative, fast-and-loose exploration) — useful as a calibration reference if you're not sure what "substantive" content looks like for your case.
-
 ## Smoke test
 
 The end-to-end plugin pipeline (validate → preflight auth → decompose → stamp + write + commit → strip audit fields → POST → render created identifiers) is covered by `lib/run_smoke_test.sh`. By default it runs in **dry mode**: each helper is invoked with a fixture input, the response-rendering code is exercised against a canned 2xx body, and no network call is made. Safe to run in CI.
