@@ -4,6 +4,22 @@ All notable changes to the `stride-ideation` plugin are documented here.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] - 2026-05-14
+
+### Changed
+
+- **Default output directory moved from `docs/superpowers/specs/` to `docs/ideation/`.** New requirements documents written by `/stride-ideation:ideate` and new decomposition JSON files written by `/stride-ideation:stridify` land under the new directory. The name change is the substantive one — `docs/ideation/` is shorter, doesn't borrow the `superpowers` name from an unrelated upstream skill, and reads more naturally to a first-time user.
+- Three files updated, all pure string replacements — the `lib/filename.sh` helpers are path-agnostic, so no helper edits were needed:
+  - `commands/ideate.md` — 4 references (command description, the `sti_unique_path` call documented in Step 4, the `TARGET_PATH` example, and the `mkdir -p` line in Step 8).
+  - `agents/requirements-decomposer.md` — 1 example path inside the agent description.
+  - `lib/test-filename.sh` — 1 fixture path on line 108. All 18 test assertions still pass.
+
+### Migration
+
+- **No migration needed. Back-compat is preserved for `/stride-ideation:stridify`.** The command takes the requirements doc path as an argument, not a hardcoded scan target — so existing requirements docs already on disk under `docs/superpowers/specs/` continue to work as `/stridify` inputs. Only **new** docs land under the new directory. Users with an existing `docs/superpowers/specs/` tree can leave it in place indefinitely; no rename, no symlink, no migration script.
+- **No command surface changes.** The two slash commands and their arguments are byte-identical to v0.5.0. Only the default output directory changed.
+- **Profile behavior is unchanged.** All four profiles (`lean`, `product`, `discovery`, `lean-startup`) work identically to v0.5.0 — the directory change is orthogonal to round structure and reviewer rubric.
+
 ## [0.5.0] - 2026-05-13
 
 ### Added
