@@ -105,7 +105,7 @@ assert_eq "slug with spaces normalizes correctly through unique_path" \
 # --- slug_from_path --------------------------------------------------------
 
 assert_eq "slug_from_path: simple requirements artifact" \
-  "$(sti_slug_from_path 'docs/superpowers/specs/2026-05-12T103000-add-notifications-requirements.md' requirements)" \
+  "$(sti_slug_from_path 'docs/ideation/2026-05-12T103000-add-notifications-requirements.md' requirements)" \
   "add-notifications"
 
 assert_eq "slug_from_path: works without a directory prefix" \
