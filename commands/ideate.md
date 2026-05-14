@@ -6,7 +6,7 @@ argument-hint: "[<topic>] [--continue <path>] [--profile <lean|product|discovery
 
 # /stride-ideation:ideate
 
-Drive an interactive ideation session that produces a committed `*-requirements.md` document under `docs/superpowers/specs/`. The protocol — round-based question batching, hard-gated sections, advisory reviewer pass — is defined in `skills/stride-ideation/SKILL.md`. This command is the surface: it parses `$ARGUMENTS`, captures the session timestamp, resolves the slug, drives the skill, and finishes by writing and committing the doc.
+Drive an interactive ideation session that produces a committed `*-requirements.md` document under `docs/ideation/`. The protocol — round-based question batching, hard-gated sections, advisory reviewer pass — is defined in `skills/stride-ideation/SKILL.md`. This command is the surface: it parses `$ARGUMENTS`, captures the session timestamp, resolves the slug, drives the skill, and finishes by writing and committing the doc.
 
 ## What to do
 
@@ -54,10 +54,10 @@ Where `<plugin-root>` is the resolved path to the installed `stride-ideation` pl
 
 ### Step 4: Compute the target path (don't write yet)
 
-Call `sti_unique_path docs/superpowers/specs "$SESSION_TS" "$SLUG" requirements md`:
+Call `sti_unique_path docs/ideation "$SESSION_TS" "$SLUG" requirements md`:
 
 ```bash
-TARGET_PATH="$(sti_unique_path docs/superpowers/specs "$SESSION_TS" "$SLUG" requirements md)"
+TARGET_PATH="$(sti_unique_path docs/ideation "$SESSION_TS" "$SLUG" requirements md)"
 ```
 
 `TARGET_PATH` is the path you WILL write to in Step 8. Do NOT create or touch this file yet. Pre-creating it as empty would leave a half-baked artifact on the filesystem if the user interrupts mid-session, which is the explicit failure mode the spec is guarding against.
@@ -168,7 +168,7 @@ Re-run `sti_unique_path` with the same arguments as Step 4 and confirm the retur
 
 ### Step 8: Write the file
 
-Use the `Write` tool to write `DRAFT_DOC` to the resolved target path. The directory `docs/superpowers/specs/` may not exist on a fresh repo; create it via `mkdir -p docs/superpowers/specs` before the write if Step 4's path resolution depended on it.
+Use the `Write` tool to write `DRAFT_DOC` to the resolved target path. The directory `docs/ideation/` may not exist on a fresh repo; create it via `mkdir -p docs/ideation` before the write if Step 4's path resolution depended on it.
 
 ### Step 9: Commit
 
