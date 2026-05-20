@@ -20,11 +20,13 @@ The plugin auto-discovers the two slash commands, the ideation skill, and the su
   Interactive ideation session. Drives a Q&A loop with you to produce a
   timestamped requirements markdown doc. Stop here if you only want a spec.
 
-/stride-ideation:stridify <path-to-requirements.md>
+/stride-ideation:stridify <path-to-requirements.md> [--goal <name|index>]
   End-to-end pipeline: validates the requirements doc, preflights auth,
   dispatches the decomposer subagent, stamps audit metadata, writes and
   commits a sibling Stride batch JSON, then POSTs it to /api/tasks/batch
   on your Stride instance and renders the created G/W identifiers.
+  --goal scopes the dispatch to one surface from the doc's
+  ## Decomposition seams section (see "Resilience model" below).
 ```
 
 See the design spec in the parent repo for the full ideation protocol and
@@ -42,6 +44,21 @@ decomposer rules.
 | `lean-startup` | Genuinely novel feature; the team is uncertain whether the underlying user need actually exists, and the next step should be a deliberate validation experiment rather than a full build | Mandatory Round-5 MVP-design batch anchored on the `(R)`-marked Assumptions entry; optional **MVP / Validation experiment** section in the doc (riskiest assumption, experiment design, success/failure criteria, time box, pivot-or-persevere decision); advisory reviewer checks for MVP section presence and falsifiable success/failure criteria |
 
 `--profile` is optional. When omitted, the lean profile applies and v0.3.0 invocations remain byte-identical — backward compatibility is preserved by default.
+
+## Resilience model (v0.7.0+)
+
+`/stride-ideation:stridify` is designed to survive a transient Anthropic API capacity spike without losing the assembled prompt or producing partial Stride state. The model has four layers, in execution order:
+
+| Layer | Trigger | What happens |
+|---|---|---|
+| **Preflight advisory** | Doc enumerates more than 3 surfaces under `## Decomposition seams` AND `--goal` is unset | One-line stderr suggestion to use `--goal`. Never blocks — purely informational. |
+| **Per-goal partitioning** | User invokes with `--goal <name|index>` | Decomposer prompt is scoped to one surface from the doc's `## Decomposition seams` section. Per-goal batches sit side-by-side (`<source-slug>-<goal-slug>-stride-batch.json`); reruns get `-2`/`-3` suffixes. |
+| **Subagent dispatch retry** | `Agent` call fails with HTTP 529 Overloaded, transient network error (DNS / connection refused / timeout / TLS handshake), or an `overloaded` classification string | Up to **3 attempts** with **~30s / ~90s** backoff (total budget ~2 min). Terminal classifications (bad subagent name, contract violation, hard 4xx) fail fast on attempt 1. |
+| **Retry-exhaustion fallback** | 3 consecutive transient failures | Writes a sibling `<source-stem>-decomposer-prompt.md` containing the assembled prompt + verbatim last error + recovery README (paste prompt into a fresh Claude session → save JSON response as target → run `lib/validate_batch.py` → manual POST). **Stride API POST is NOT attempted.** |
+
+**The Stride API POST itself is not retried** — Step 9 fails fast on 4xx/5xx and surfaces the response body verbatim. Per-task idempotency on a partial batch is not guaranteed, so automatic retry could double-create some tasks while leaving others to fail again; the user reads the verbatim body and re-invokes.
+
+`--goal <value>` accepts both `--goal value` and `--goal=value` forms, and `<value>` can be either a 1-based integer index into the seams list OR a slug-matching string (case-insensitive, hyphen-tolerant). When the seams section is absent and `--goal` is set, `/stridify` errors loudly with a verbatim "no Decomposition seams section in <path>" message rather than silently falling back to all-goals mode. The seams section itself remains freeform — the ideation skill does NOT gate it.
 
 ## Requirements
 
