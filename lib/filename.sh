@@ -80,6 +80,160 @@ sti_slug_from_path() {
   printf '%s' "$slug"
 }
 
+sti_extract_seams() {
+  # Parse a requirements doc's "## Decomposition seams" section and emit one
+  # line per surface in the form:
+  #
+  #   <index>\t<name>\t<slug>
+  #
+  # <index> is 1-based and re-numbered in document order (the markdown
+  # author's literal numbering is ignored — markdown renderers do the same).
+  # <name> is the bold-name verbatim (may contain spaces and dashes).
+  # <slug> is the slugified name via sti_slugify.
+  #
+  # Item-start pattern (anchored at line start, leading whitespace tolerated):
+  #
+  #   ^\s*<digits>.\s+\*\*<Name>\*\*...
+  #
+  # Multi-line item bodies are ignored — only the bold-name from the item's
+  # first line yields a seam tuple. Items whose first line lacks **bold**
+  # are silently skipped (they cannot be addressed by --goal anyway).
+  #
+  # Exit codes:
+  #   0  section present (possibly with zero parseable items)
+  #   1  I/O error / bad usage
+  #   2  section absent — the "## Decomposition seams" heading is not in the doc
+  #
+  # The caller distinguishes "absent" (exit 2) from "present but empty"
+  # (exit 0 with no stdout) — they produce different user-facing errors.
+  local path="${1:-}"
+  if [ -z "$path" ] || [ ! -f "$path" ]; then
+    echo "sti_extract_seams: not a file: $path" >&2
+    return 1
+  fi
+  if ! grep -qE '^## Decomposition seams[[:space:]]*$' "$path"; then
+    return 2
+  fi
+  local body
+  body="$(awk '
+    /^## Decomposition seams[[:space:]]*$/ { in_section=1; next }
+    in_section && /^## / { in_section=0 }
+    in_section { print }
+  ' "$path")"
+  local idx=0
+  printf '%s\n' "$body" \
+    | sed -nE 's/^[[:space:]]*[0-9]+\.[[:space:]]+\*\*([^*]+)\*\*.*/\1/p' \
+    | while IFS= read -r raw_name; do
+        local slug
+        slug="$(sti_slugify "$raw_name" 2>/dev/null)" || continue
+        idx=$(( idx + 1 ))
+        printf '%d\t%s\t%s\n' "$idx" "$raw_name" "$slug"
+      done
+}
+
+sti_resolve_goal() {
+  # Resolve a user-supplied --goal value against the seams in a requirements
+  # doc. Echoes "<index>\t<name>\t<slug>" on match.
+  #
+  # Usage: sti_resolve_goal <markdown-path> <goal-arg>
+  #
+  # Resolution order:
+  #   1. If <goal-arg> is purely digits AND a seam exists at that 1-based
+  #      index, integer-match wins.
+  #   2. Otherwise (or if integer-index miss), slugify <goal-arg> and
+  #      exact-match against each seam's slug field. First match wins.
+  #
+  # Exit codes:
+  #   0  match (tuple on stdout)
+  #   1  bad usage
+  #   2  section absent in doc
+  #   3  no match (caller surfaces "did not match" error + lists seams)
+  #   4  section present but empty
+  local path="${1:-}"
+  local arg="${2:-}"
+  if [ -z "$path" ] || [ -z "$arg" ]; then
+    echo "sti_resolve_goal: usage: sti_resolve_goal <markdown-path> <goal-arg>" >&2
+    return 1
+  fi
+  local seams extract_rc
+  seams="$(sti_extract_seams "$path")"
+  extract_rc=$?
+  if [ "$extract_rc" -ne 0 ]; then
+    return "$extract_rc"
+  fi
+  if [ -z "$seams" ]; then
+    return 4
+  fi
+  if printf '%s' "$arg" | grep -qE '^[0-9]+$'; then
+    local int_match
+    int_match="$(printf '%s\n' "$seams" | awk -F'\t' -v i="$arg" '$1 == i { print; exit }')"
+    if [ -n "$int_match" ]; then
+      printf '%s' "$int_match"
+      return 0
+    fi
+    # Fall through to slug-match (covers a seam literally named "1" addressed by its slug).
+  fi
+  local arg_slug
+  arg_slug="$(sti_slugify "$arg" 2>/dev/null)" || return 3
+  local slug_match
+  slug_match="$(printf '%s\n' "$seams" | awk -F'\t' -v s="$arg_slug" '$3 == s { print; exit }')"
+  if [ -n "$slug_match" ]; then
+    printf '%s' "$slug_match"
+    return 0
+  fi
+  return 3
+}
+
+sti_scope_doc_to_seam() {
+  # Rewrite a requirements doc to scope its "## Decomposition seams" section
+  # to one surface. Emits the doc text on stdout with the section body
+  # replaced by a one-line "Scoped to a single surface for this dispatch."
+  # notice followed by the matched item's verbatim lines (start line + any
+  # continuation lines until the next numbered item or the section's end).
+  #
+  # Content OUTSIDE the section is preserved verbatim. Content inside the
+  # section that is NOT part of any numbered item (intro prose, "The seven
+  # surfaces:" lead-in, etc.) is dropped — the directive line replaces it.
+  #
+  # Usage: sti_scope_doc_to_seam <markdown-path> <seam-index>
+  local path="${1:-}"
+  local target="${2:-}"
+  if [ -z "$path" ] || [ -z "$target" ] || [ ! -f "$path" ]; then
+    echo "sti_scope_doc_to_seam: usage: sti_scope_doc_to_seam <markdown-path> <seam-index>" >&2
+    return 1
+  fi
+  awk -v target="$target" '
+    BEGIN { state = 0; item_idx = 0; collecting = 0 }
+    # state 0: before the seams section (print verbatim)
+    # state 1: inside the seams section (only the matched item is kept)
+    # state 2: after the seams section (print verbatim)
+    state == 0 && /^## Decomposition seams[[:space:]]*$/ {
+      print
+      print ""
+      print "**Scoped to a single surface for this dispatch.**"
+      print ""
+      state = 1
+      next
+    }
+    state == 0 { print; next }
+    state == 1 {
+      if (/^## /) {
+        state = 2
+        print ""
+        print
+        next
+      }
+      if (match($0, /^[[:space:]]*[0-9]+\.[[:space:]]+\*\*/)) {
+        item_idx = item_idx + 1
+        collecting = (item_idx == target) ? 1 : 0
+      }
+      if (collecting) print
+      next
+    }
+    state == 2 { print; next }
+  ' "$path"
+}
+
 sti_unique_path() {
   local dir="${1:-}"
   local ts="${2:-}"
