@@ -10,3 +10,6 @@
 
 # Claude Code user-local settings
 .claude/
+
+# stride-ideation intra-session autosave scratch drafts (never commit)
+.stride/
