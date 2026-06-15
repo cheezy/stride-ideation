@@ -99,6 +99,7 @@ The parsed value of `--profile` from Step 1 is threaded into the skill args as `
 The skill enforces:
 - the hard gate against premature implementation,
 - the round-based `AskUserQuestion` loop (≤ 4 questions per round),
+- the display-only round recap emitted before every round (see **Round recap** in `skills/stride-ideation/SKILL.md`) — it reports per-section solid/thin/empty status and the round's target sections without changing the gate, the round order, or the question budget,
 - the mandatory round-3 framing checkpoint,
 - the seven hard-gated sections (Goal, Problem, Outcome, Assumptions, Constraints, Non-goals, Success Metrics),
 - the advisory `requirements-reviewer` subagent pass before the write.
