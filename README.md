@@ -16,17 +16,23 @@ The plugin auto-discovers the two slash commands, the ideation skill, and the su
 ## The two commands
 
 ```text
-/stride-ideation:ideate [<topic>] [--continue <path>] [--profile <name>]
+/stride-ideation:ideate [<topic>] [--continue <path>] [--input <path>] [--profile <name>]
   Interactive ideation session. Drives a Q&A loop with you to produce a
   timestamped requirements markdown doc. Stop here if you only want a spec.
+  --continue refines a prior committed requirements doc; --input seeds draft
+  sections from a freeform brain-dump file (read-only). When --profile is
+  omitted, the session recommends one before the rounds. See "Session
+  experience" below.
 
-/stride-ideation:stridify <path-to-requirements.md> [--goal <name|index>]
+/stride-ideation:stridify <path-to-requirements.md> [--goal <name|index>] [--yes]
   End-to-end pipeline: validates the requirements doc, preflights auth,
   dispatches the decomposer subagent, stamps audit metadata, writes and
-  commits a sibling Stride batch JSON, then POSTs it to /api/tasks/batch
-  on your Stride instance and renders the created G/W identifiers.
+  commits a sibling Stride batch JSON, then — after showing you the decomposed
+  goal/task tree and getting your approval — POSTs it to /api/tasks/batch on
+  your Stride instance and renders the created G/W identifiers.
   --goal scopes the dispatch to one surface from the doc's
   ## Decomposition seams section (see "Resilience model" below).
+  --yes / --auto-approve bypasses the approval gate for scripted callers.
 ```
 
 See the design spec in the parent repo for the full ideation protocol and
@@ -43,7 +49,24 @@ decomposer rules.
 | `discovery` | Early-stage topic where the case-for-action is the riskiest part | Round-2 Why-now + Alternative-options forcing questions; advisory reviewer check for Why-now content |
 | `lean-startup` | Genuinely novel feature; the team is uncertain whether the underlying user need actually exists, and the next step should be a deliberate validation experiment rather than a full build | Mandatory Round-5 MVP-design batch anchored on the `(R)`-marked Assumptions entry; optional **MVP / Validation experiment** section in the doc (riskiest assumption, experiment design, success/failure criteria, time box, pivot-or-persevere decision); advisory reviewer checks for MVP section presence and falsifiable success/failure criteria |
 
-`--profile` is optional. When omitted, the lean profile applies and v0.3.0 invocations remain byte-identical — backward compatibility is preserved by default.
+`--profile` is optional. When omitted, the lean profile applies and v0.3.0 invocations remain byte-identical — backward compatibility is preserved by default. **New in v0.8.0:** when `--profile` is omitted, `/ideate` now *recommends* a profile before the rounds begin (recommended-first, with a one-line rationale, defaulting to lean) instead of silently defaulting; passing `--profile` explicitly skips the recommendation.
+
+## Session experience (v0.8.0+)
+
+`/stride-ideation:ideate` is a guided, recoverable, human-in-control session. These affordances are additive — a flag-free or `--profile=lean` run still produces the same committed requirements doc.
+
+| Feature | What it does |
+|---|---|
+| **Round recap** | Before every round, a display-only recap shows each of the seven gated sections as `solid` / `thin` / `empty` plus the round's target sections. Never an extra question; never changes the gate, round order, or `≤ 4`-question budget. |
+| **"I'm not sure — propose candidates"** | Every gated-section and forcing question carries this first-class option. Picking it makes the skill propose 2–4 concrete, topic-tailored candidates with one-line rationales; you pick, edit, or ask for more. A proposed candidate never satisfies the gate until you confirm it. |
+| **Profile recommendation** | When `--profile` is omitted, a single recommendation question runs before the rounds (recommended-first, lean default). Explicit `--profile` skips it. |
+| **`--input <file>` brain-dump seed** | Reads a freeform notes file **read-only** and pre-populates draft sections wherever the notes map to a gated section, then focuses the rounds on the gaps. Distinct from `--continue` (a committed requirements doc) and composable with it. The input file is never modified, moved, or committed. |
+| **Draft autosave & resume** | The in-progress draft is autosaved after every round to a **gitignored** scratch file under `.stride/`, so an interruption is recoverable. On start, an unfinished draft for the same slug is detected and you're offered resume-or-fresh; the scratch file is deleted after a successful commit. Never holds the Stride API token. |
+| **Reviewer decision** | When the advisory `requirements-reviewer` reports findings, they're surfaced as a multi-select decision (severity-tagged, one line each) with an explicit **"Address none — write as-is"** choice. You choose what feeds the single refinement round. At most one refinement round; the reviewer never blocks the write. |
+
+## Preview-and-approval gate on `/stridify` (v0.8.0+)
+
+Before POSTing the generated batch to your Stride instance, `/stride-ideation:stridify` now renders the decomposed goal/task tree — each goal title, its task count, its task titles, and the cross-goal claim order from `decomposition_notes` — and requires your explicit approval. The batch JSON is written and committed to disk *before* the gate, so on decline the command stops cleanly (exit 0) with the audited artifact intact and no POST attempted. Pass `--yes` / `--auto-approve` (explicit only, never inferred) to bypass the gate and preserve the historical fire-and-forget behavior byte-for-byte for scripted callers. The preview reads only the on-disk JSON and never prints the API token.
 
 ## Resilience model (v0.7.0+)
 
