@@ -144,7 +144,7 @@ The skill enforces:
 - the "I'm not sure — propose candidates" uncertainty path offered on every batched question — gated-section and profile-specific forcing questions alike (see **Uncertainty path** in `skills/stride-ideation/SKILL.md`); it proposes 2–4 topic-tailored candidates but can never satisfy the hard gate without human confirmation,
 - the mandatory round-3 framing checkpoint,
 - the seven hard-gated sections (Goal, Problem, Outcome, Assumptions, Constraints, Non-goals, Success Metrics),
-- the advisory `requirements-reviewer` subagent pass before the write.
+- the advisory `requirements-reviewer` subagent pass before the write — its findings are surfaced to the human as a single multi-select decision (each finding one line, severity-tagged, plus an explicit "Address none — write as-is" option) that feeds the at-most-one refinement round; an `approved` verdict with no findings shows no prompt, and the reviewer never blocks the write (see **Reviewer pass** in `skills/stride-ideation/SKILL.md`).
 
 When the skill returns, you will have a single string `DRAFT_DOC` containing the fully composed requirements markdown — every gated section present and substantive. If the skill returns without a draft (user aborted, hard gate not satisfied), stop here and exit cleanly — do NOT write anything to disk and do NOT commit.
 
