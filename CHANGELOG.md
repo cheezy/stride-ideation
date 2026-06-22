@@ -4,6 +4,12 @@ All notable changes to the `stride-ideation` plugin are documented here.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Security
+
+- **Audit: the install path does not overwrite a project-root context file (no fix needed).** Reviewed the Claude Code install path for the `AGENTS.md`-overwrite class of bug found in the OpenCode/Codex ideation installers. This plugin has no `install.sh`/`install.ps1`; it installs exclusively via the marketplace flow (`/plugin marketplace add cheezy/stride-marketplace` then `/plugin install stride-ideation@stride-marketplace`), which places the plugin inside Claude Code's managed plugin cache. `.claude-plugin/plugin.json` is a flat manifest (name, description, version, author, license, keywords) — it declares no hooks, no install scripts, and no directive that writes any file to the user's project root; `.claude-plugin/` contains only `plugin.json` (no `hooks.json`). The plugin ships no `AGENTS.md`/`CLAUDE.md`/context file, and commands/skills/agents are auto-discovered from the cache with "no further configuration needed." Conclusion: safe — no project-root context file is ever written or clobbered, so the managed-block guard applied to the OpenCode/Codex installers is unnecessary here.
+
 ## [0.8.0] - 2026-06-15
 
 This release turns `/stride-ideation:ideate` from a one-way interrogation into a guided, recoverable, human-in-control session, and adds a preview-and-approval gate to `/stride-ideation:stridify` so generated tasks are never shipped sight-unseen. Six `/ideate` session-experience features plus one `/stridify` safety gate. Every change is additive — `--profile=lean` (and flag-free) invocations remain byte-for-byte compatible with v0.7.0 on the happy path.
