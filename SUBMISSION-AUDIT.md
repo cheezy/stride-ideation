@@ -83,6 +83,48 @@ and single network POST:
 - No real tokens, `.stride_auth.md`, or `.env` content appears in this audit, per
   the task's security constraint.
 
+## Credential-hygiene audit (W1284) — ALL CLEAR
+
+Full sweep of the `stride-ideation/` plugin repo for bundled secrets and
+credential handling. **No leak found; no rotation or history remediation
+required.**
+
+| Check | Method | Result |
+|-------|--------|--------|
+| No secret files tracked | `git ls-files \| grep -Ei 'auth\|secret\|token\|\.env\|\.pem\|\.key'` | ✅ only `lib/read_auth.py` matches — the auth-*reader* script, not a secret file (no token content). No `.stride_auth.md`, `.env`, `.pem`, or `.key` tracked. |
+| No hardcoded credentials | `git ls-files \| xargs grep -nEi 'stride_(dev\|prod)_…\|Bearer …'` over skills/commands/agents/lib/fixtures | ✅ no real token literals. Every `Bearer` usage references the `$STRIDE_API_TOKEN` **variable** (`commands/stridify.md`, `lib/run_smoke_test.sh`); `lib/read_auth.py:69` shows a `stride_xxx...` **placeholder** in a help string. |
+| Fixtures clean | `grep -rnEi 'stride_(dev\|prod)_\|Bearer …' fixtures/` | ✅ the three example requirements docs + batch JSONs and the fixtures README carry no token literals or auth material. |
+| No real token in history | `git log --all -S 'stride_dev_'` / `-S 'stride_prod_'` | ✅ the only `stride_dev_` strings ever committed are obvious synthetic test placeholders in lib test scripts (`stride_dev_TEST_TOKEN_FOR_SMOKE_TEST_ONLY`, `stride_dev_LOCAL_should_not_match`, `stride_dev_REAL_TOKEN_xyz123`, `stride_dev_SUPER_SECRET_TOKEN_xyz_DO_NOT_LEAK`). No real credential ever entered history. |
+| lib test scripts pass clean | `for t in lib/test-*.sh; do bash "$t"; done` | ✅ 11/11 test scripts passed. |
+| User docs warn against committing creds | `README.md` § Auth | ✅ `README.md:110` states "Never commit `.stride_auth.md` — it carries a bearer token"; token shown only as `stride_xxx...` placeholder. |
+
+### Credential-sourcing model (verified in `lib/read_auth.py`)
+
+The token and API base URL are resolved at runtime from **user-local sources
+only** — never hardcoded:
+
+1. **Source:** `lib/read_auth.py <path>` reads the user's `.stride_auth.md` and
+   extracts `STRIDE_API_URL` + `STRIDE_API_TOKEN` via regex.
+2. **Prod-token disambiguation:** the token regex uses a negative lookbehind
+   `(?<!Local )` so it matches the prod `**API Token:**` line and explicitly
+   **not** the `**Local API Token:**` line.
+3. **Token never leaks to the error channel:** the resolved token is written
+   **only to stdout** (a sourceable `STRIDE_API_TOKEN=…` line); every error path
+   writes to stderr and the code comments enforce that the token value is never
+   placed in a stderr message — even on a partial match.
+4. **No persistence / no echo:** the token is never written to disk, logged, or
+   persisted. In `/stridify` it is passed only as a `curl -H "Authorization:
+   Bearer $STRIDE_API_TOKEN"` header (never as a `ps`-visible positional
+   argument; `-v` is prohibited).
+
+Unlike the `stride` plugin, `stride-ideation` ships **no `hooks.json`** — there
+is no client-side hook-execution surface and `read_auth.py` is the sole
+credential-handling component. The `draft.sh` autosave is documented as never
+holding the API token.
+
+**W1284 verdict:** credential hygiene is **ALL CLEAR**. Audit finding #6 (this
+sweep) is now closed with no remediation needed.
+
 ## Baseline conclusion
 
 The submission's **hard validation gate is already green** (all three targets
