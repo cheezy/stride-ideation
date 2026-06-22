@@ -4,14 +4,47 @@
 
 This plugin provides brainstorming and ideation for projects that use [Stride](https://www.stridelikeaboss.com). Run `/stride-ideation:ideate` to drive an interactive ideation session that produces a committed requirements markdown document. Stop there if you just want a written spec — or run `/stride-ideation:stridify` to decompose the requirements into a Stride batch JSON, commit it for audit, and POST it to the Stride API in a single invocation.
 
+> **Security:** for what the plugin runs on your machine, what data leaves it,
+> and how your API token is handled, see **[SECURITY.md](SECURITY.md)**.
+
+> **External service:** only `/stride-ideation:stridify` makes a network call —
+> a single `POST` of the decomposed batch JSON to your configured Stride server
+> (`https://www.stridelikeaboss.com` by default), authenticated with a bearer
+> token you supply. `/stride-ideation:ideate` is fully local. The plugin
+> contacts no other host. See [SECURITY.md](SECURITY.md) for exactly what is sent.
+
 ## Installation
 
-```bash
+**From the community plugin directory** (once the listing is approved):
+
+```
+/plugin install stride-ideation@claude-community
+```
+
+**From the Stride marketplace** (available today):
+
+```
 /plugin marketplace add cheezy/stride-marketplace
 /plugin install stride-ideation@stride-marketplace
 ```
 
 The plugin auto-discovers the two slash commands, the ideation skill, and the supporting subagents on install. No further configuration needed.
+
+## Prerequisites
+
+- **Claude Code** — the slash commands and subagent dispatch use Claude Code primitives.
+- **git** — `/ideate` and `/stridify` commit their artifacts (the requirements doc and the batch JSON) to your repository for audit.
+- **For `/stridify` only:** a **Stride account and API token** from [stridelikeaboss.com](https://www.stridelikeaboss.com), and a project-local **`.stride_auth.md`** (your API URL + token — **never commit it**; it carries a bearer token). `/ideate` needs none of these.
+
+## What's in this plugin
+
+- **2 slash commands** — `/stride-ideation:ideate` (interactive ideation → committed requirements doc) and `/stride-ideation:stridify` (decompose → commit → POST the batch).
+- **1 skill** — `stride-ideation`, the ideation protocol that drives the `/ideate` question loop and section gating.
+- **2 subagents** (Claude Code) — `requirements-decomposer` (turns a requirements doc into batch JSON) and `requirements-reviewer` (advisory gap review of a draft; never edits).
+- **`lib/` helper scripts** — `read_auth.py` (credential extraction), `validate_batch.py` (batch-JSON shape check), `drift_check.py` (source-spec drift), `strip_audit_fields.py` (audit-field removal before POST), `filename.sh` / `draft.sh` (slug/path + draft autosave), and `run_smoke_test.sh` (end-to-end harness). All are Markdown/Python/bash — there is no `hooks.json` and no client-side hook execution.
+- **`fixtures/`** — example requirements docs and their decomposed batch JSON, used by the smoke test and as references.
+
+All agent-facing components are Markdown instructions, not executable code; the only executable surface is the `lib/` helper scripts. See [SECURITY.md](SECURITY.md) for the full runtime model.
 
 ## The two commands
 
@@ -35,8 +68,9 @@ The plugin auto-discovers the two slash commands, the ideation skill, and the su
   --yes / --auto-approve bypasses the approval gate for scripted callers.
 ```
 
-See the design spec in the parent repo for the full ideation protocol and
-decomposer rules.
+The full ideation protocol and decomposer rules live in the plugin itself —
+[`skills/stride-ideation/SKILL.md`](skills/stride-ideation/SKILL.md) and
+[`agents/requirements-decomposer.md`](agents/requirements-decomposer.md).
 
 ## Profiles
 
@@ -83,11 +117,6 @@ Before POSTing the generated batch to your Stride instance, `/stride-ideation:st
 
 `--goal <value>` accepts both `--goal value` and `--goal=value` forms, and `<value>` can be either a 1-based integer index into the seams list OR a slug-matching string (case-insensitive, hyphen-tolerant). When the seams section is absent and `--goal` is set, `/stridify` errors loudly with a verbatim "no Decomposition seams section in <path>" message rather than silently falling back to all-goals mode. The seams section itself remains freeform — the ideation skill does NOT gate it.
 
-## Requirements
-
-- A Stride workspace and `.stride_auth.md` in the project where you run `/stridify`
-- Claude Code (the slash commands and subagent dispatch use Claude Code primitives)
-
 ## Smoke test
 
 The end-to-end plugin pipeline (validate → preflight auth → decompose → stamp + write + commit → strip audit fields → POST → render created identifiers) is covered by `lib/run_smoke_test.sh`. By default it runs in **dry mode**: each helper is invoked with a fixture input, the response-rendering code is exercised against a canned 2xx body, and no network call is made. Safe to run in CI.
@@ -117,6 +146,17 @@ Auth is read from the same `.stride_auth.md` the slash commands use. Never commi
 2. Run `/stride-ideation:stridify <path-to-requirements.md>`. Confirm the resulting `*-stride-batch.json` is committed, the goals/tasks table is rendered, and the created G/W identifiers appear in the Stride workspace's Backlog column with the expected titles.
 
 The unit-test suites (`lib/test-*.sh`) cover every helper in isolation. The smoke test confirms the helpers compose correctly. The interactive end-to-end is the human-driven check that the slash commands themselves behave correctly when driven by a real user — a thing the test harness fundamentally cannot stand in for.
+
+## Security
+
+For a reviewer-facing description of what the plugin runs on your machine, the
+single `/stridify` network egress, how the bearer token is handled, what is
+written to disk, and what the plugin does **not** do, see
+**[SECURITY.md](SECURITY.md)**. A credential-hygiene sweep of this repository is
+recorded in [SUBMISSION-AUDIT.md](SUBMISSION-AUDIT.md).
+
+**Never commit `.stride_auth.md`** — it carries your Stride bearer token. Keep it
+in your project's `.gitignore`.
 
 ## License
 
