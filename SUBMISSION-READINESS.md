@@ -51,27 +51,27 @@ directory path).
 | **Individual author (this case)** | Console plugin submission — `platform.claude.com/plugins/submit` |
 | Teams / Enterprise | claude.ai admin directory — `claude.ai/admin-settings/directory/submissions/plugins/new` |
 
-> ⚠️ **Verify before submitting.** These URLs come from prior product research
-> and were **not** re-confirmed against a live page at package time. Open the
-> Console and confirm the current submission entry point before relying on the
-> exact path. (Pitfall: don't record a submission URL as confirmed without
-> verifying it is current.)
+> ✅ **Verified.** The individual-author Console path
+> (`platform.claude.com/plugins/submit`) has been confirmed against the live
+> page and is the correct submission entry point.
 
 ## Open follow-ups before clicking submit
 
-1. **🔴 BLOCKER — push the plugin repo and update the marketplace pin.** The 5
+1. **✅ RESOLVED — plugin repo pushed and marketplace pin current.** The 5
    deliverable commits (`d4e14be`, `7924aa8`, `3ad5ad6`, `80d3c70`, `f0306cc`)
-   plus this readiness doc are committed **locally only** (5 commits ahead of
-   `origin/main` at package time). The directory pulls from the **public** repo,
-   so these must be pushed to `github.com/cheezy/stride-ideation` **and** the
-   `cheezy/stride-marketplace` pin for `stride-ideation` must be updated **before**
-   the listing will reflect this work. *Not yet pushed — awaiting your go-ahead.*
-2. **🟡 Non-blocking — trim the marketplace blurb.** The `plugins[].description`
-   for `stride-ideation` in the separate `cheezy/stride-marketplace` repo is an
-   oversized changelog-style paragraph (~5,510 chars — audit finding #3). It
-   lives outside this plugin repo (out of this goal's scope) but reads poorly as
-   a catalog blurb — worth trimming in the marketplace repo before the listing
-   goes live.
+   are on `origin/main` at `github.com/cheezy/stride-ideation` (verified: local
+   `main` is 0 ahead / 0 behind after a fresh fetch). The
+   `cheezy/stride-marketplace` catalog pins `stride-ideation` v0.8.0 pointing at
+   the public repo.
+2. **✅ RESOLVED — marketplace blurb trimmed.** The `plugins[].description` for
+   `stride-ideation` in `cheezy/stride-marketplace` was cut from the ~5,510-char
+   changelog paragraph to a concise 283-char one-line blurb covering both
+   `/ideate` and `/stridify` (marketplace commit `2647559`, pushed; delivered as
+   Stride task W1346 under goal G274): *"Turn a fuzzy idea into shipped Stride
+   tasks via two slash commands — /ideate drives an interactive, profile-aware
+   question loop that hard-gates seven requirements sections into a committed
+   markdown doc, and /stridify decomposes that doc into Stride goals and tasks
+   via the batch API."*
 
 ## Credential rotation
 
@@ -83,9 +83,10 @@ scripts). No rotation blocks this submission.
 ## Go / No-Go
 
 **Validation, manifest, security doc, README, and credential hygiene are all
-GREEN.** The only hard blocker is operational, not content: **the plugin repo
-must be pushed public and the marketplace pin updated** (item 1). Once pushed,
-the package is ready to submit.
+GREEN.** Both operational follow-ups are now resolved: the plugin repo is pushed
+public with the marketplace pin current (item 1), and the marketplace blurb is
+trimmed (item 2). The submission URL is confirmed. **No blockers remain — the
+package is ready to submit.**
 
 **This goal ends here. The submission form is intentionally NOT submitted** —
 that is the user's call.
