@@ -1,7 +1,7 @@
 {
   "name": "stride-ideation",
   "description": "Turn a fuzzy idea into a committed requirements doc and Stride tasks via two slash commands — /stride-ideation:ideate and /stride-ideation:stridify.",
-  "version": "0.9.0",
+  "version": "0.10.0",
   "author": {
     "name": "Jeff Morgan",
     "email": "cheezy@letstango.ca",

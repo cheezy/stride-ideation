@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-06-26
+
+Adds a **challenge gate** to the `/stride-ideation:ideate` loop — a mandatory, profile-independent step that stress-tests the design before the requirements doc is committed. The premortem (round 4) inverts the framing to surface the single most likely failure mode; the challenge gate is deliberately broader, auditing confidence in *every* assumption, scanning for blind spots the premortem misses, and forcing a comparison against real alternatives. Like the reviewer pass, it is advisory and never blocks the write.
+
+### Added
+
+- **The challenge gate — a new mandatory step in the ideation protocol** (`skills/stride-ideation/SKILL.md`). It runs after the round-4 premortem (and the Round-5 MVP-design batch under `profile=lean-startup`) and before the advisory reviewer pass, with four components: (1) an **assumption-confidence audit** that rates every Assumptions entry `high`/`medium`/`low`; (2) a **blind-spot scan** for unstated dependencies, omitted stakeholders, untested edge cases, and failure modes the premortem missed; (3) **alternative generation** producing two distinct alternative approaches; and (4) a **trade-off analysis** comparing the proposed design against the two alternatives across cost, risk, complexity, and timeline. The gate is profile-independent (identical under `lean`/`product`/`discovery`/`lean-startup`), runs even on `--continue`, and is advisory — the option set always includes an explicit **"Challenge nothing — write as-is"** choice, so it never blocks the write.
+- **A new optional `## Design challenge` document section.** The gate's confidence ratings fold back into the `## Assumptions` entries in place (`(high)`/`(medium)`/`(low)` alongside the `(R)` riskiest marker); the blind spots, the two alternatives, and the trade-off comparison fold into this new optional section. Like `Sketch` and `Open questions` it is ungated and is **not** added to the round recap (which still lists only the seven hard-gated sections).
+- **Command-surface wiring in `commands/ideate.md`.** The gate is added to the Step-5 mandatory-steps list (surfaced via a single multi-select `AskUserQuestion`, ≤ 4 questions) and the optional `## Design challenge` section plus the confidence-rated Assumptions are added to the Step-6 doc template.
+- **A challenge-gate fixture and smoke/unit coverage.** `fixtures/2026-05-12T120300-saved-filters-challenge-gate-requirements.md` demonstrates the gate output (a `## Design challenge` section with two alternatives and a cost/risk/complexity/timeline trade-off, plus confidence-rated Assumptions). `lib/test-challenge-gate.sh` (8 assertions incl. three negative controls) and a new `Stage 6` in `lib/run_smoke_test.sh` assert the output shape offline (`run_smoke_test.sh` now reports `14 passed, 0 failed`).
+- **README documentation** of the challenge gate in the `/ideate` flow (Session experience table) alongside the framing checkpoint, premortem, and reviewer pass.
+
 ## [0.9.0] - 2026-06-26
 
 A documentation, packaging, and security-audit release that makes `stride-ideation` ready for public plugin-directory submission. There are **no functional changes** to `/stride-ideation:ideate` or `/stride-ideation:stridify` — runtime behavior is byte-for-byte identical to v0.8.0. Every change here is metadata, reviewer-facing documentation, or a recorded audit.
