@@ -74,7 +74,7 @@ The full ideation protocol and decomposer rules live in the plugin itself —
 
 ## Profiles
 
-`/stride-ideation:ideate` accepts a `--profile <name>` flag that selects which forcing questions run inside the rounds and which optional sections the document may include. The seven hard-gated section names and the mandatory round-3 framing and round-4 premortem are identical across all profiles — only the augmentations change.
+`/stride-ideation:ideate` accepts a `--profile <name>` flag that selects which forcing questions run inside the rounds and which optional sections the document may include. The seven hard-gated section names and the mandatory round-3 framing, round-4 premortem, and challenge gate are identical across all profiles — only the augmentations change.
 
 | Profile | When to pick it | What it adds |
 |---|---|---|
@@ -96,6 +96,7 @@ The full ideation protocol and decomposer rules live in the plugin itself —
 | **Profile recommendation** | When `--profile` is omitted, a single recommendation question runs before the rounds (recommended-first, lean default). Explicit `--profile` skips it. |
 | **`--input <file>` brain-dump seed** | Reads a freeform notes file **read-only** and pre-populates draft sections wherever the notes map to a gated section, then focuses the rounds on the gaps. Distinct from `--continue` (a committed requirements doc) and composable with it. The input file is never modified, moved, or committed. |
 | **Draft autosave & resume** | The in-progress draft is autosaved after every round to a **gitignored** scratch file under `.stride/`, so an interruption is recoverable. On start, an unfinished draft for the same slug is detected and you're offered resume-or-fresh; the scratch file is deleted after a successful commit. Never holds the Stride API token. |
+| **Challenge gate** | Runs after the round-4 premortem (and the Round-5 MVP-design batch under `lean-startup`) and before the reviewer pass. Stress-tests the design via four components — an assumption-confidence audit (rate every assumption `high`/`medium`/`low`), a blind-spot scan, two distinct alternative approaches, and a cost/risk/complexity/timeline trade-off comparison — surfaced as a single multi-select decision with an explicit **"Challenge nothing — write as-is"** choice. Advisory and profile-independent; it never blocks the write. Confidence ratings fold into the Assumptions entries in place; the blind spots, the two alternatives, and the trade-off comparison fold into a new optional **Design challenge** section (not one of the seven gated sections). |
 | **Reviewer decision** | When the advisory `requirements-reviewer` reports findings, they're surfaced as a multi-select decision (severity-tagged, one line each) with an explicit **"Address none — write as-is"** choice. You choose what feeds the single refinement round. At most one refinement round; the reviewer never blocks the write. |
 
 ## Preview-and-approval gate on `/stridify` (v0.8.0+)
