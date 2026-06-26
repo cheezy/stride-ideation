@@ -158,6 +158,13 @@ recorded in [SUBMISSION-AUDIT.md](SUBMISSION-AUDIT.md).
 **Never commit `.stride_auth.md`** — it carries your Stride bearer token. Keep it
 in your project's `.gitignore`.
 
+## Changelog
+
+See [CHANGELOG.md](CHANGELOG.md) for the release history. The current release is
+**v0.9.0** — a documentation, packaging, and security-audit release that makes
+the plugin ready for public directory submission, with no change to how
+`/ideate` or `/stridify` behave.
+
 ## License
 
 MIT — see [LICENSE](LICENSE).

@@ -6,9 +6,29 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-06-26
+
+A documentation, packaging, and security-audit release that makes `stride-ideation` ready for public plugin-directory submission. There are **no functional changes** to `/stride-ideation:ideate` or `/stride-ideation:stridify` — runtime behavior is byte-for-byte identical to v0.8.0. Every change here is metadata, reviewer-facing documentation, or a recorded audit.
+
+### Added
+
+- **Reviewer-facing `SECURITY.md`.** A standalone security document describing exactly what the plugin runs on your machine, its single network egress (the `/stridify` `POST` of the decomposed batch to your configured Stride server), how the bearer token is read and never logged or committed, what is written to disk (only the requirements doc, the batch JSON, and the gitignored `.stride/` draft scratch file), and what the plugin deliberately does **not** do. The README's two security callouts and its Security section now link to it.
+- **Completed `.claude-plugin/plugin.json` manifest for directory listing.** The manifest now carries the full set of fields a public listing needs — `author` (name, email, URL), `homepage`, `repository`, `license`, and `keywords` — alongside the existing name/description/version, so the plugin presents correctly in the directory.
+- **`SUBMISSION-AUDIT.md` — a recorded credential-hygiene and packaging audit** of the repository (the baseline go/no-go evidence the README's Security section now references).
+- **`SUBMISSION-READINESS.md` — a go/no-go submission checklist** capturing the resolved follow-ups (repo pushed, listing blurb trimmed, repository URL confirmed) so the directory submission is reproducible.
+
+### Changed
+
+- **The README is now directory-self-contained.** It no longer assumes the surrounding monorepo context: installation, prerequisites, the two commands, profiles, the resilience model, the smoke test, and security all read correctly when the plugin is viewed standalone on its own repository page, with cross-links to `SECURITY.md` and `SUBMISSION-AUDIT.md`.
+
 ### Security
 
+- **Credential-hygiene sweep of the repository — all clear.** Audited the tracked files for accidentally committed secrets (no `.stride_auth.md`, no bearer tokens, no API keys); the result is recorded in `SUBMISSION-AUDIT.md`.
 - **Audit: the install path does not overwrite a project-root context file (no fix needed).** Reviewed the Claude Code install path for the `AGENTS.md`-overwrite class of bug found in the OpenCode/Codex ideation installers. This plugin has no `install.sh`/`install.ps1`; it installs exclusively via the marketplace flow (`/plugin marketplace add cheezy/stride-marketplace` then `/plugin install stride-ideation@stride-marketplace`), which places the plugin inside Claude Code's managed plugin cache. `.claude-plugin/plugin.json` is a flat manifest (name, description, version, author, license, keywords) — it declares no hooks, no install scripts, and no directive that writes any file to the user's project root; `.claude-plugin/` contains only `plugin.json` (no `hooks.json`). The plugin ships no `AGENTS.md`/`CLAUDE.md`/context file, and commands/skills/agents are auto-discovered from the cache with "no further configuration needed." Conclusion: safe — no project-root context file is ever written or clobbered, so the managed-block guard applied to the OpenCode/Codex installers is unnecessary here.
+
+### Migration
+
+- **No migration needed.** This release changes only documentation, manifest metadata, and audit records. `/ideate` and `/stridify` behave exactly as in v0.8.0.
 
 ## [0.8.0] - 2026-06-15
 
