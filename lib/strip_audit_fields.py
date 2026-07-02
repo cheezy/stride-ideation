@@ -24,6 +24,10 @@ import json
 import sys
 
 
+# Never add created_by_agent here: it is a create-payload field the API
+# accepts and persists for attribution (stamped per-goal by /stridify Step 8b),
+# not a local audit field — stripping it would silently un-attribute every
+# shipped batch. lib/test-stamping.sh has a round-trip regression for this.
 LOCAL_AUDIT_FIELDS = ("source_spec", "source_spec_sha256", "decomposition_notes")
 
 

@@ -425,26 +425,36 @@ A validation failure here is a **subagent regression** — the requirements-deco
 
 After the validator returns zero, also confirm that `decomposition_notes` exists at the root. It is required by the subagent contract for documenting cross-goal claim ordering. If the key is missing, set it to an empty string before the next sub-step and emit a one-line warning — but do NOT fail; some single-goal decompositions legitimately have nothing cross-goal to document.
 
-**(8b) Stamp source_spec and source_spec_sha256.** Inject the local-audit fields at the JSON root. The output JSON MUST have these exact root keys in this exact order (so a human reading the file sees the audit metadata at the top before the goal payload):
+**(8b) Stamp source_spec, source_spec_sha256, and created_by_agent.** Two stamps happen in this sub-step: the local-audit fields at the JSON root, and the creating-agent attribution on each goal object.
+
+Inject the local-audit fields at the JSON root. The output JSON MUST have these exact root keys in this exact order (so a human reading the file sees the audit metadata at the top before the goal payload):
 
 ```json
 {
   "source_spec": "<SOURCE_SPEC>",
   "source_spec_sha256": "<SOURCE_SHA>",
   "decomposition_notes": "...subagent value...",
-  "goals": [...subagent value...]
+  "goals": [
+    {
+      "created_by_agent": "<YOUR_AGENT_NAME>",
+      "...": "...rest of the subagent's goal value, preserved verbatim..."
+    }
+  ]
 }
 ```
 
 Use the **normalized** `SOURCE_SPEC` from Step 6 (relative to repo root, or absolute as fallback) — not the raw `$REQUIREMENTS_PATH`. The hex string MUST be **lowercase** for canonical comparison.
 
-**Defensive overwrite.** The decomposer subagent's prompt at `agents/requirements-decomposer.md` explicitly tells the agent NOT to emit `source_spec` or `source_spec_sha256` — but if the agent emits them anyway (regression, prompt drift), this command **always overwrites** them with values computed in Step 6. Never preserve agent-supplied values for these two keys. Concretely, when serializing the merged JSON:
+**Stamp created_by_agent on each goal.** Set `created_by_agent` on **every goal object** — not the JSON root, and not each task: the server propagates the goal's value to every nested child task, so goal-level stamping attributes the whole tree. The value rule comes from the canonical stride plugin's creating-goals skill: set it to *"the exact same value you send as `agent_name` on claim and complete"* — the plain agent name (e.g. `"Claude Opus 4.6"`), never the `ai_agent:<model>` token form. Use your own runtime agent name. The field is accepted **only on create** — it is forbidden on `PATCH` and cannot be backfilled, so a batch shipped without it is permanently unattributed in the `/agents` activity feed.
+
+**Defensive overwrite.** The decomposer subagent's prompt at `agents/requirements-decomposer.md` explicitly lists `source_spec`, `source_spec_sha256`, and `created_by_agent` in its do-not-emit list — `created_by_agent` because it is a runtime value the decomposer cannot know; this stamping step is the "stamps it at ship time" that rationale promises. If the agent emits any of them anyway (regression, prompt drift), this command **always overwrites** them. Never preserve agent-supplied values for these keys. Concretely, when serializing the merged JSON:
 
 1. Start from the subagent's output object.
-2. **Delete** any `source_spec` and `source_spec_sha256` keys the subagent included.
-3. Build a new object whose iteration order is `source_spec`, `source_spec_sha256`, `decomposition_notes`, `goals`.
+2. **Delete** any `source_spec` and `source_spec_sha256` keys the subagent included, and any `created_by_agent` key it placed on the root, a goal, or a task.
+3. Set `created_by_agent` on each goal object to your own plain agent name.
+4. Build a new object whose iteration order is `source_spec`, `source_spec_sha256`, `decomposition_notes`, `goals`.
 
-This is the ONLY mutation made to the subagent's output — every other field (per-goal title, tasks, pitfalls, etc.) is preserved verbatim. The three audit fields are stripped from the API payload in Step 9; they remain on disk as the audit trail that pairs this batch JSON with its source requirements doc.
+These are the ONLY mutations made to the subagent's output — every other field (per-goal title, tasks, pitfalls, etc.) is preserved verbatim. Note the disk-vs-wire asymmetry between the two stamps: the three root audit fields are stripped from the API payload in Step 9 and live on disk only (the audit trail pairing this batch JSON with its source requirements doc), while `created_by_agent` is **never stripped** — it is a create-payload field the server persists for attribution, not a local audit field, so the committed artifact and the POST body both carry it identically. There is no drift between disk and wire for this field.
 
 **(8c) Verify path uniqueness and write the file.** Re-run `sti_unique_path` with the same arguments as Step 5 to confirm `TARGET_PATH` is still untaken. If a colliding file appeared between Step 5 and now (concurrent process, manual filesystem action), use the freshly resolved path — never overwrite an existing file.
 
@@ -537,6 +547,8 @@ API_PAYLOAD="$(python3 "<plugin-root>/lib/strip_audit_fields.py" "$BATCH_PATH")"
 ```
 
 `$API_PAYLOAD` is the JSON to POST. The on-disk file is unchanged — stripping happens in memory only, so the local audit fields stay available for tools that read the JSON later.
+
+The per-goal `created_by_agent` stamped in Step 8b is deliberately **not** in the strip set — it is a create-payload field the API accepts and persists for attribution, not a local audit field. It must survive this step and reach the wire; adding it to `lib/strip_audit_fields.py`'s strip list would silently un-attribute every shipped batch.
 
 **(9b) POST to the Stride batch endpoint.**
 
