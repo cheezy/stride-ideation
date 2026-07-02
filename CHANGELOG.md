@@ -4,7 +4,9 @@ All notable changes to the `stride-ideation` plugin are documented here.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.11.0] - 2026-07-02
+
+An accuracy-and-behavior release: the decomposer contract, calibration fixtures, and batch validator now all enforce and model the five review-queue scored fields; shipped goals are attributed via `created_by_agent`; and every stale doc claim surfaced by the audit is corrected. Eight entries below (W1460–W1467).
 
 ### Fixed — orphaned drift check reframed as a documented standalone helper (W1466)
 
