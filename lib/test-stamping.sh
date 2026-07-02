@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # Unit tests for the source_spec / source_spec_sha256 stamping logic used by
-# /stride-ideation:decompose.
+# /stride-ideation:stridify.
 #
-# The stamping itself runs inside the slash-command body (commands/decompose.md
-# Step 5 + Step 8), but three behaviors are testable in isolation:
+# The stamping itself runs inside the slash-command body (commands/stridify.md
+# Step 6 computes the SHA; Step 8b stamps it), but three behaviors are
+# testable in isolation:
 #
 #   1. The recorded SHA matches `shasum -a 256` of the supplied requirements
 #      doc (canonical constant for a known fixture).
@@ -63,8 +64,10 @@ fi
 # --- lowercasing of hex output --------------------------------------------
 #
 # The stamping pipeline pipes shasum's output through `tr 'A-Z' 'a-z'` to force
-# lowercase hex so /ship's drift check compares byte-for-byte. Validate that
-# the lowercasing actually happens.
+# lowercase hex for byte-for-byte canonical comparison (originally for the
+# historical drift check, now omitted in /stridify — see stridify.md's "Drift
+# check omitted" note; lowercase remains the canonical on-disk form). Validate
+# that the lowercasing actually happens.
 
 UPPER_HEX_SAMPLE="ABCDEF0123456789"
 LOWER_HEX_EXPECTED="abcdef0123456789"

@@ -2,7 +2,7 @@
 # stride-ideation filename helpers.
 #
 # Two pure functions used by /stride-ideation:ideate and
-# /stride-ideation:decompose to compute unique artifact paths:
+# /stride-ideation:stridify to compute unique artifact paths:
 #
 #   sti_slugify "Add Notifications!"            -> "add-notifications"
 #   sti_unique_path <dir> <ts> <slug> <artifact> <ext>

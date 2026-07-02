@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate a Stride batch JSON document produced by /stride-ideation:decompose.
+"""Validate a Stride batch JSON document produced by /stride-ideation:stridify.
 
 Usage:
     python3 lib/validate_batch.py <path-to-stride-batch.json>
@@ -35,7 +35,7 @@ non-fatal by design: the exit code stays 0.
 Beyond (f) and the advisory pass, the validator still does NOT enforce
 per-task Stride-API field shapes (pitfalls-as-array-of-strings,
 verification_steps-as-objects, etc.). Those are the decomposer agent's
-responsibility; /ship surfaces the API's own error if anything slips
+responsibility; /stridify's Step 9 POST surfaces the API's own error if anything slips
 through. Length is checked ONLY on the fields the server actually bounds:
 title (goal and task) and each security_considerations element. pitfalls
 elements and key_files notes are JSONB on the server (unbounded) — checking

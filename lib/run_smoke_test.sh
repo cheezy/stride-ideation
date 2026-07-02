@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# End-to-end smoke test for the /stride-ideation:ship pipeline.
+# End-to-end smoke test for the /stride-ideation:stridify pipeline.
 #
 # Composes every helper the slash command body invokes — in the
 # same order — and verifies each stage produces the expected output.
