@@ -4,12 +4,13 @@
 Usage:
     python3 lib/validate_batch.py <path-to-stride-batch.json>
 
-Exits 0 with no output on success.
+Exits 0 on success; advisory warnings (see below) print to stdout and never
+change the exit code.
 Exits 1 on the first violation, printing a single line of the form:
 
     stride-ideation: <error message naming the failing JSON path>
 
-The named error variants are exactly the five the task contract calls out:
+The named error variants:
 
   (a) parse_error           - input is not valid JSON
   (b) wrong_root_key        - root has 'tasks' or any key other than 'goals'
@@ -19,11 +20,26 @@ The named error variants are exactly the five the task contract calls out:
                               array slot that does not exist OR points to a
                               task at or after the referencing task's own
                               position (forward reference)
+  (f) length_limit          - a goal/task title or a security_considerations
+                              element exceeds 255 Unicode code points — the
+                              server binds these to varchar(255) and rejects
+                              longer values with an opaque error
 
-The validator does NOT enforce per-task Stride-API field shapes
-(pitfalls-as-array-of-strings, verification_steps-as-objects, etc.). Those
-are the decomposer agent's responsibility; /ship surfaces the API's own
-error if anything slips through.
+After all fatal checks pass, an ADVISORY scored-field completeness pass
+warns (stdout, prefix "stride-ideation: warning:") for any task whose
+review-queue scored field (acceptance_criteria, testing_strategy,
+security_considerations, pitfalls, patterns_to_follow) is missing or empty —
+each renders an empty review-queue pill once the task ships. Warnings are
+non-fatal by design: the exit code stays 0.
+
+Beyond (f) and the advisory pass, the validator still does NOT enforce
+per-task Stride-API field shapes (pitfalls-as-array-of-strings,
+verification_steps-as-objects, etc.). Those are the decomposer agent's
+responsibility; /ship surfaces the API's own error if anything slips
+through. Length is checked ONLY on the fields the server actually bounds:
+title (goal and task) and each security_considerations element. pitfalls
+elements and key_files notes are JSONB on the server (unbounded) — checking
+them would reject batches the server accepts.
 """
 
 import json
@@ -34,6 +50,34 @@ from typing import Any
 def fail(message: str) -> "None":
     sys.stderr.write(f"stride-ideation: {message}\n")
     sys.exit(1)
+
+
+def warn(message: str) -> "None":
+    sys.stdout.write(f"stride-ideation: warning: {message}\n")
+
+
+# The server binds these columns to varchar(255), which limits by Unicode
+# code point — Python's len() on a str counts code points identically.
+MAX_VARCHAR = 255
+
+# The five review-queue scored fields; a missing or empty one renders an
+# empty pill on every task of every goal shipped through /stridify.
+SCORED_FIELDS = (
+    "acceptance_criteria",
+    "testing_strategy",
+    "security_considerations",
+    "pitfalls",
+    "patterns_to_follow",
+)
+
+
+def check_length(json_path: str, value: "Any") -> "None":
+    # Only strings are measured — shape enforcement stays out of scope.
+    if isinstance(value, str) and len(value) > MAX_VARCHAR:
+        fail(
+            f"{json_path} is {len(value)} characters — the server column "
+            f"is varchar(255) and rejects longer values"
+        )
 
 
 def validate(path: str) -> "None":
@@ -120,13 +164,35 @@ def validate(path: str) -> "None":
                 f"own at least one task"
             )
 
-        # (e) bad_dependency_index
+        # (f) length_limit — goal level
+        check_length(f"goals[{goal_idx}].title", goal["title"])
+        goal_sec = goal.get("security_considerations")
+        if isinstance(goal_sec, list):
+            for elem_idx, elem in enumerate(goal_sec):
+                check_length(
+                    f"goals[{goal_idx}].security_considerations[{elem_idx}]",
+                    elem,
+                )
+
+        # (e) bad_dependency_index + (f) length_limit — task level
         for task_idx, task in enumerate(goal["tasks"]):
             if not isinstance(task, dict):
                 fail(
                     f"goals[{goal_idx}].tasks[{task_idx}] must be an object, "
                     f"got {type(task).__name__}"
                 )
+            check_length(
+                f"goals[{goal_idx}].tasks[{task_idx}].title",
+                task.get("title"),
+            )
+            task_sec = task.get("security_considerations")
+            if isinstance(task_sec, list):
+                for elem_idx, elem in enumerate(task_sec):
+                    check_length(
+                        f"goals[{goal_idx}].tasks[{task_idx}]"
+                        f".security_considerations[{elem_idx}]",
+                        elem,
+                    )
             deps = task.get("dependencies", [])
             if not isinstance(deps, list):
                 fail(
@@ -169,7 +235,24 @@ def validate(path: str) -> "None":
                         f"to an earlier sibling"
                     )
 
-    # All checks passed.
+    # All fatal checks passed — advisory scored-field completeness pass.
+    # Warnings never precede a fatal exit (every fail() above returns first)
+    # and never change the exit code.
+    for goal_idx, goal in enumerate(goals):
+        for task_idx, task in enumerate(goal["tasks"]):
+            for field in SCORED_FIELDS:
+                value = task.get(field)
+                if (
+                    value is None
+                    or value == []
+                    or value == {}
+                    or (isinstance(value, str) and not value.strip())
+                ):
+                    warn(
+                        f"goals[{goal_idx}].tasks[{task_idx}].{field} is "
+                        f"empty or missing — scored field will render an "
+                        f"empty review-queue pill"
+                    )
 
 
 def main(argv: "list[str]") -> "None":

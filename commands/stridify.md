@@ -411,7 +411,7 @@ fi
 rm -f "$TMP_JSON.err"
 ```
 
-The validator enforces five named checks, in order:
+The validator enforces six named checks, in order, followed by an advisory (non-blocking) scored-field completeness pass:
 
 | Check | Failure mode | Example error message |
 |---|---|---|
@@ -420,8 +420,11 @@ The validator enforces five named checks, in order:
 | (c) `empty_goals` | `goals` missing, not an array, or empty | `root.goals is an empty array — the decomposer returned no goals` |
 | (d) `goal_missing_field` | A goal lacks `title`, `type`, or `tasks`, or a task is malformed | `goals[0] is missing required field 'title'` |
 | (e) `bad_dependency_index` | A task's `dependencies[]` index is out of range, negative, or a forward / self reference | `goals[0].tasks[1].dependencies references index 5 but goal only has 2 tasks (valid indices 0..1)` |
+| (f) `length_limit` | A goal/task `title` or a `security_considerations` element exceeds 255 Unicode code points — the server binds these to `varchar(255)` and rejects longer values with an opaque error | `goals[0].tasks[1].security_considerations[2] is 271 characters — the server column is varchar(255) and rejects longer values` |
 
-A validation failure here is a **subagent regression** — the requirements-decomposer agent's contract guarantees a valid root-key=`goals` JSON. If you see one, the agent's prompt has drifted; surface the validator message verbatim and stop. The validator does NOT check per-task Stride-API field shapes — those are the decomposer agent's responsibility, and any slip-through surfaces as a verbatim 422 in Step 9.
+**Advisory scored-field pass (non-blocking).** After all six fatal checks pass, the validator warns on **stdout** (`stride-ideation: warning: ...`) for every task whose review-queue scored field (`acceptance_criteria`, `testing_strategy`, `security_considerations`, `pitfalls`, `patterns_to_follow`) is missing or empty — each would render an empty review-queue pill after the goal ships. Warnings never change the exit code, so a warned batch still proceeds; the snippet above captures only stderr, and the warnings flow through stdout unmodified for you to surface before Step 9's POST — no snippet change is needed.
+
+A validation failure here is a **subagent regression** — the requirements-decomposer agent's contract guarantees a valid root-key=`goals` JSON. If you see one, the agent's prompt has drifted; surface the validator message verbatim and stop. Beyond check (f) and the advisory pass, the validator does NOT check per-task Stride-API field shapes — those are the decomposer agent's responsibility, and any slip-through surfaces as a verbatim 422 in Step 9. Length is enforced only on the fields the server actually bounds (`title` at both levels and `security_considerations` elements); `pitfalls` elements and `key_files` notes are JSONB on the server (unbounded), so checking them would reject batches the server accepts.
 
 After the validator returns zero, also confirm that `decomposition_notes` exists at the root. It is required by the subagent contract for documenting cross-goal claim ordering. If the key is missing, set it to an empty string before the next sub-step and emit a one-line warning — but do NOT fail; some single-goal decompositions legitimately have nothing cross-goal to document.
 
