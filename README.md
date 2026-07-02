@@ -41,8 +41,16 @@ The plugin auto-discovers the two slash commands, the ideation skill, and the su
 - **2 slash commands** — `/stride-ideation:ideate` (interactive ideation → committed requirements doc) and `/stride-ideation:stridify` (decompose → commit → POST the batch).
 - **1 skill** — `stride-ideation`, the ideation protocol that drives the `/ideate` question loop and section gating.
 - **2 subagents** (Claude Code) — `requirements-decomposer` (turns a requirements doc into batch JSON) and `requirements-reviewer` (advisory gap review of a draft; never edits).
-- **`lib/` helper scripts** — `read_auth.py` (credential extraction), `validate_batch.py` (batch-JSON shape check), `drift_check.py` (source-spec drift), `strip_audit_fields.py` (audit-field removal before POST), `filename.sh` / `draft.sh` (slug/path + draft autosave), and `run_smoke_test.sh` (end-to-end harness). All are Markdown/Python/bash — there is no `hooks.json` and no client-side hook execution.
+- **`lib/` helper scripts** — `read_auth.py` (credential extraction), `validate_batch.py` (batch-JSON shape check), `drift_check.py` (source-spec drift — standalone, see below), `strip_audit_fields.py` (audit-field removal before POST), `filename.sh` / `draft.sh` (slug/path + draft autosave), and `run_smoke_test.sh` (end-to-end harness). All are Markdown/Python/bash — there is no `hooks.json` and no client-side hook execution.
 - **`fixtures/`** — example requirements docs and their decomposed batch JSON, used by the smoke test and as references.
+
+`drift_check.py` is a **standalone consistency tool, not wired into `/stridify`** — the command deliberately omits drift checking because it writes and POSTs the batch JSON in the same invocation, so the source doc cannot have drifted (see the "Drift check omitted" note in `commands/stridify.md`). The tool stays useful outside that flow: run it whenever a committed batch JSON may have outlived its requirements doc (hand edits, reuse, archaeology):
+
+```bash
+python3 lib/drift_check.py fixtures/2026-05-12T120000-dark-mode-toggle-stride-batch.json
+# exit 0 with no output — the requirements doc is unchanged since the batch was stamped;
+# exit 1 with a stderr warning naming the stamped vs recomputed SHA when it has drifted.
+```
 
 All agent-facing components are Markdown instructions, not executable code; the only executable surface is the `lib/` helper scripts. See [SECURITY.md](SECURITY.md) for the full runtime model.
 

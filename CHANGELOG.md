@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Fixed — orphaned drift check reframed as a documented standalone helper (W1466)
+
+`lib/run_smoke_test.sh` claimed it "composes every helper the slash command body invokes — in the same order" while its Stage 2 runs `drift_check.py`, a helper `/stridify` deliberately does not invoke (the command writes and POSTs the batch in one invocation, so source drift cannot occur — per stridify.md's "Drift check omitted" note). The header now says it exercises every shipped lib helper, command-invoked plus standalone, naming Stage 2's drift check as the standalone one; stage numbering and logic untouched. The README marks `drift_check.py` as a standalone consistency tool not wired into `/stridify`, explains when it is still useful (hand-edited or reused batch JSONs), and adds a verified usage example with the exit-code semantics. stridify.md unchanged.
+
 ### Fixed — stale removed-command references across the lib scripts (W1465)
 
 Six lib files still cited the pre-merge `/stride-ideation:decompose` and `/stride-ideation:ship` commands (and `commands/decompose.md`, a file that no longer exists) in their headers and docstrings — stale pointers that turned test debugging into archaeology. All comment/docstring-only corrections: `test-stamping.sh` now points at `/stridify` (Step 6 computes the SHA; Step 8b stamps) and describes the drift check as historical and omitted; `test-ship-helpers.sh` describes its two helpers against the current `/stridify` steps (9a strip, Step 3 auth preflight) with a parenthetical explaining its legacy filename (not renamed — nothing external references it); `validate_batch.py`, `strip_audit_fields.py`, `run_smoke_test.sh`, and `filename.sh` docstrings/headers now name `/stridify` with current step anchors. Zero assertion changes — all 12 suites and the smoke test pass with identical counts.

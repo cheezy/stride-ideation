@@ -1,8 +1,11 @@
 #!/usr/bin/env bash
 # End-to-end smoke test for the /stride-ideation:stridify pipeline.
 #
-# Composes every helper the slash command body invokes — in the
-# same order — and verifies each stage produces the expected output.
+# Exercises every shipped lib helper — the ones the /stridify command
+# body invokes plus the standalone ones (Stage 2's drift_check.py is a
+# standalone consistency tool that /stridify deliberately does NOT
+# invoke; see the "Drift check omitted" note in commands/stridify.md)
+# — and verifies each stage produces the expected output.
 # The final HTTP POST is dry-run by default (no actual network
 # call) so this runner is safe to execute in CI or against any
 # checkout. Pass --live <stride-batch.json> to POST against a real
