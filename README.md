@@ -127,7 +127,7 @@ The end-to-end plugin pipeline (validate → preflight auth → decompose → st
 ./lib/run_smoke_test.sh
 ```
 
-Expected output: five stages, ten ✓ markers, `10 passed, 0 failed`.
+Expected output: a numbered stage list where every check prints a ✓ marker, ending in an all-passing summary line (`N passed, 0 failed`). The exact stage and check counts grow as coverage is added — `0 failed` is the invariant to look for. A further stage (the live POST) runs only under `--live`, never in dry mode.
 
 To exercise the full pipeline against a real Stride instance, use `--live` with a batch JSON path:
 
@@ -161,10 +161,9 @@ in your project's `.gitignore`.
 
 ## Changelog
 
-See [CHANGELOG.md](CHANGELOG.md) for the release history. The current release is
-**v0.9.0** — a documentation, packaging, and security-audit release that makes
-the plugin ready for public directory submission, with no change to how
-`/ideate` or `/stridify` behave.
+See [CHANGELOG.md](CHANGELOG.md) for the release history — its topmost versioned
+entry is the current release. The version number is deliberately not repeated
+here, so this paragraph stays true across releases.
 
 ## License
 

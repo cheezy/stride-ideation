@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Fixed — stale version, smoke-test, and test-count claims in README and submission audit (W1464)
+
+Three factual refreshes, each in release-stable wording so they do not rot again. The README's Changelog section no longer names a specific "current release" (it pointed at v0.9.0 two releases back) — it now defers to the CHANGELOG's topmost entry. The README's smoke-test expectation ("five stages, ten ✓ markers, 10 passed, 0 failed" — the dry harness actually has six stages and reports 14/0) now describes the output shape with `0 failed` as the invariant and notes the live-POST stage runs only under `--live`. SUBMISSION-AUDIT.md's test-scripts row preserves the historically-accurate audit-time result (all 11 scripts then present passed, 2026-06-22) and appends a dated 2026-07-02 re-verification: 12 scripts, 168 assertions, 0 failures — real output quoted, not computed. CHANGELOG history untouched.
+
 ### Fixed — reviewer check-count contradiction and ideate enforcement-list omissions (W1463)
 
 `agents/requirements-reviewer.md` said "All three checks are advisory" while the same file said "five conditional checks" and "All five checks" — the three was a v0.4.0-era count never updated when v0.5.0 added the two lean-startup checks; all three references now consistently say five. The `commands/ideate.md` "The skill enforces:" list carried the round-3 framing checkpoint as its own bullet but left the mandatory round-4 premortem and the lean-startup Round-5 MVP-design batch as mere timing anchors inside the challenge-gate bullet; each is now its own enforcement bullet (the round-5 bullet stating it is skipped under any profile other than `lean-startup`), matching how SKILL.md marks both Mandatory.

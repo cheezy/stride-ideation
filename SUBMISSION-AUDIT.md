@@ -95,7 +95,7 @@ required.**
 | No hardcoded credentials | `git ls-files \| xargs grep -nEi 'stride_(dev\|prod)_…\|Bearer …'` over skills/commands/agents/lib/fixtures | ✅ no real token literals. Every `Bearer` usage references the `$STRIDE_API_TOKEN` **variable** (`commands/stridify.md`, `lib/run_smoke_test.sh`); `lib/read_auth.py:69` shows a `stride_xxx...` **placeholder** in a help string. |
 | Fixtures clean | `grep -rnEi 'stride_(dev\|prod)_\|Bearer …' fixtures/` | ✅ the three example requirements docs + batch JSONs and the fixtures README carry no token literals or auth material. |
 | No real token in history | `git log --all -S 'stride_dev_'` / `-S 'stride_prod_'` | ✅ the only `stride_dev_` strings ever committed are obvious synthetic test placeholders in lib test scripts (`stride_dev_TEST_TOKEN_FOR_SMOKE_TEST_ONLY`, `stride_dev_LOCAL_should_not_match`, `stride_dev_REAL_TOKEN_xyz123`, `stride_dev_SUPER_SECRET_TOKEN_xyz_DO_NOT_LEAK`). No real credential ever entered history. |
-| lib test scripts pass clean | `for t in lib/test-*.sh; do bash "$t"; done` | ✅ 11/11 test scripts passed. |
+| lib test scripts pass clean | `for t in lib/test-*.sh; do bash "$t"; done` | ✅ all 11 test scripts then present passed at audit time (2026-06-22). Re-verified 2026-07-02: the suite has since grown to 12 scripts — all 12 pass, 168 assertions, 0 failures. |
 | User docs warn against committing creds | `README.md` § Auth | ✅ `README.md:110` states "Never commit `.stride_auth.md` — it carries a bearer token"; token shown only as `stride_xxx...` placeholder. |
 
 ### Credential-sourcing model (verified in `lib/read_auth.py`)
