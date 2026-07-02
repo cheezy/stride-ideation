@@ -1,7 +1,7 @@
 {
   "source_spec": "fixtures/2026-05-12T120100-notifications-system-requirements.md",
   "source_spec_sha256": "6e0a5207b4524e4c9bc14c56f98e4349c8fa8824489aa60c107d3a19f600370c",
-  "decomposition_notes": "Multi-goal split along the three orthogonal seams from the Sketch section. G1 (events + queue) emits notification_requested into Oban; G2 (preferences UI) lets users opt in to channels and configure DND; G3 (email rendering + dispatch) consumes the queue and emails out. G1 and G2 are independent and can be claimed in any order. G3 depends on G1 — claim G1 first, let its queue contract land in main, then claim G3. G2 is fully parallel.",
+  "decomposition_notes": "Multi-goal split along the three orthogonal seams from the Sketch section. G1 (events + queue) emits notification_requested into Oban; G2 (preferences UI) lets users opt in to channels and configure DND; G3 (email rendering + dispatch) consumes the queue and emails out. G1 and G2 are independent and can be claimed in any order. G3 depends on G1 \u2014 claim G1 first, let its queue contract land in main, then claim G3. G2 is fully parallel.",
   "goals": [
     {
       "title": "Wire notification event detection and Oban queue",
@@ -14,14 +14,346 @@
       "where_context": "lib/app/approvals/, lib/app/comments/, lib/app/tasks/, lib/app/notifications/queue.ex (new)",
       "description": "Independent of UI and email work; produces the queue contract both downstream goals depend on.",
       "acceptance_criteria": "Approval lifecycle emits notification_requested when an approval is owed\nComment mentions emit notification_requested at create time\nDependency-unblocked emits notification_requested\nOban queue dedupes by (recipient_id, event_class)",
-      "pitfalls": ["Do not introduce a new background-job library; reuse the existing Oban setup"],
+      "pitfalls": [
+        "Do not introduce a new background-job library; reuse the existing Oban setup"
+      ],
       "tasks": [
-        {"title": "Define notification_requested event shape and module", "type": "work", "complexity": "small", "priority": "high", "needs_review": false, "description": "Add MyApp.Notifications.Event struct with recipient_id, event_class, payload, occurred_at. Used as the queue input contract.", "acceptance_criteria": "Event struct defined\nUnit test asserts struct construction + required fields", "dependencies": [], "key_files": [{"file_path": "lib/app/notifications/event.ex", "note": "New struct", "position": 0}], "verification_steps": [{"step_type": "command", "step_text": "mix test test/app/notifications/event_test.exs", "expected_result": "Tests pass", "position": 0}]},
-        {"title": "Add :notifications Oban queue config", "type": "work", "complexity": "small", "priority": "high", "needs_review": false, "description": "Register the new :notifications queue in the existing Oban config with a sensible concurrency limit.", "acceptance_criteria": "Queue is supervised\nConcurrency limit set to a value that respects SMTP relay limits", "dependencies": [0], "key_files": [{"file_path": "config/config.exs", "note": "Oban queues config", "position": 0}], "verification_steps": [{"step_type": "command", "step_text": "mix compile", "expected_result": "compiles", "position": 0}]},
-        {"title": "Emit notification_requested from approval lifecycle", "type": "work", "complexity": "small", "priority": "high", "needs_review": false, "description": "Hook the existing approval-state-transition path so an 'approval owed to X' transition emits a notification_requested event to the queue.", "acceptance_criteria": "Approval owed transition emits event\nUnit test asserts an event is enqueued when the approval is created", "dependencies": [1], "key_files": [{"file_path": "lib/app/approvals/lifecycle.ex", "note": "Hook the emit", "position": 0}], "verification_steps": [{"step_type": "command", "step_text": "mix test test/app/approvals/lifecycle_test.exs", "expected_result": "Tests pass", "position": 0}]},
-        {"title": "Emit notification_requested from comment mentions", "type": "work", "complexity": "small", "priority": "high", "needs_review": false, "description": "On comment create, scan for @mentions and emit one notification_requested event per mentioned user.", "acceptance_criteria": "Mention scanning emits one event per unique user\nUnit test covers single mention, multi-mention, self-mention (suppressed)", "dependencies": [1], "key_files": [{"file_path": "lib/app/comments/mentions.ex", "note": "Mention scanner + emitter", "position": 0}], "verification_steps": [{"step_type": "command", "step_text": "mix test test/app/comments/mentions_test.exs", "expected_result": "Tests pass", "position": 0}]},
-        {"title": "Emit notification_requested when a dependency is unblocked", "type": "work", "complexity": "small", "priority": "high", "needs_review": false, "description": "When a task's last blocking dependency completes, emit notification_requested for the task's owner.", "acceptance_criteria": "Dependency-unblock transition emits event\nUnit test covers single-dep and chain-of-deps cases", "dependencies": [1], "key_files": [{"file_path": "lib/app/tasks/dependencies.ex", "note": "Add emit hook", "position": 0}], "verification_steps": [{"step_type": "command", "step_text": "mix test test/app/tasks/dependencies_test.exs", "expected_result": "Tests pass", "position": 0}]},
-        {"title": "Implement queue dedupe by (recipient_id, event_class)", "type": "work", "complexity": "small", "priority": "high", "needs_review": false, "description": "Before persisting an enqueued event, look up existing pending events for the same recipient + event class and collapse the payload into the existing job.", "acceptance_criteria": "Duplicate events within a window collapse\nUnit test asserts two enqueues of the same recipient+class produce one job", "dependencies": [2, 3, 4], "key_files": [{"file_path": "lib/app/notifications/queue.ex", "note": "Dedupe logic", "position": 0}], "verification_steps": [{"step_type": "command", "step_text": "mix test test/app/notifications/queue_test.exs", "expected_result": "Tests pass", "position": 0}]}
+        {
+          "title": "Define notification_requested event shape and module",
+          "type": "work",
+          "complexity": "small",
+          "priority": "high",
+          "needs_review": false,
+          "description": "Add MyApp.Notifications.Event struct with recipient_id, event_class, payload, occurred_at. Used as the queue input contract.",
+          "why": "Every emitter and the queue need one agreed contract; without a typed event shape the three emit sites will drift.",
+          "what": "Define MyApp.Notifications.Event struct (recipient_id, event_class, payload, occurred_at) with a constructor that enforces required fields.",
+          "where_context": "lib/app/notifications/event.ex (new), test/app/notifications/event_test.exs (new)",
+          "acceptance_criteria": "Event struct defined\nUnit test asserts struct construction + required fields",
+          "patterns_to_follow": "Use @enforce_keys plus a new/1 constructor returning {:ok, event} | {:error, reason}\nKeep event_class a closed set (:approval_owed, :mention, :dependency_unblocked)",
+          "pitfalls": [
+            "Do not let payload become a dumping ground \u2014 keep it to what the templates need",
+            "Do not couple the struct to Oban job args yet; the queue task owns that mapping"
+          ],
+          "dependencies": [],
+          "key_files": [
+            {
+              "file_path": "lib/app/notifications/event.ex",
+              "note": "New struct",
+              "position": 0
+            }
+          ],
+          "verification_steps": [
+            {
+              "step_type": "command",
+              "step_text": "mix test test/app/notifications/event_test.exs",
+              "expected_result": "Tests pass",
+              "position": 0
+            }
+          ],
+          "testing_strategy": {
+            "unit_tests": [
+              "new/1 with all fields returns the struct",
+              "Missing recipient_id or event_class returns an error",
+              "Unknown event_class is rejected"
+            ],
+            "integration_tests": [
+              "Not applicable \u2014 pure struct module with no collaborators yet"
+            ],
+            "manual_tests": [
+              "Not applicable \u2014 covered by unit tests"
+            ],
+            "edge_cases": [
+              "occurred_at defaults sensibly when omitted",
+              "payload accepts an empty map"
+            ],
+            "coverage_target": "100% of constructor branches"
+          },
+          "security_considerations": [
+            "Payload will carry PII (names, comment excerpts) downstream \u2014 keep fields minimal and never log full payloads at info level"
+          ]
+        },
+        {
+          "title": "Add :notifications Oban queue config",
+          "type": "work",
+          "complexity": "small",
+          "priority": "high",
+          "needs_review": false,
+          "description": "Register the new :notifications queue in the existing Oban config with a sensible concurrency limit.",
+          "why": "The dispatcher and dedupe logic need a dedicated supervised queue; sharing the default queue would let unrelated jobs starve notifications.",
+          "what": "Register a :notifications queue in the existing Oban config with a concurrency limit sized to the SMTP relay's rate cap.",
+          "where_context": "config/config.exs (Oban queues key), config/test.exs (inline/manual testing mode)",
+          "acceptance_criteria": "Queue is supervised\nConcurrency limit set to a value that respects SMTP relay limits",
+          "patterns_to_follow": "Mirror the existing Oban queue entries in config.exs\nUse Oban's testing mode in the test env like the other queues",
+          "pitfalls": [
+            "Do not set concurrency higher than the SMTP relay allows \u2014 bounced jobs retry and amplify load",
+            "Do not forget test-env config; async tests hang on live queues"
+          ],
+          "dependencies": [
+            0
+          ],
+          "key_files": [
+            {
+              "file_path": "config/config.exs",
+              "note": "Oban queues config",
+              "position": 0
+            }
+          ],
+          "verification_steps": [
+            {
+              "step_type": "command",
+              "step_text": "mix compile",
+              "expected_result": "compiles",
+              "position": 0
+            }
+          ],
+          "testing_strategy": {
+            "unit_tests": [
+              "Config test asserts the Oban queues include :notifications with the expected limit"
+            ],
+            "integration_tests": [
+              "mix compile succeeds and the app boots in dev with the queue supervised"
+            ],
+            "manual_tests": [
+              "Not applicable \u2014 config-only change"
+            ],
+            "edge_cases": [
+              "Test environment runs jobs inline/manually so nothing executes in the background"
+            ],
+            "coverage_target": "Config assertion only \u2014 no logic to cover"
+          },
+          "security_considerations": [
+            "None directly \u2014 configuration only; the concurrency cap is the throttle protecting the mail relay from accidental floods"
+          ]
+        },
+        {
+          "title": "Emit notification_requested from approval lifecycle",
+          "type": "work",
+          "complexity": "small",
+          "priority": "high",
+          "needs_review": false,
+          "description": "Hook the existing approval-state-transition path so an 'approval owed to X' transition emits a notification_requested event to the queue.",
+          "why": "Approval-owed is the highest-value event class \u2014 the 28h p50 approval lag is the metric this initiative exists to move.",
+          "what": "Hook the approval state-transition path so an 'approval owed to X' transition builds a Notifications.Event and enqueues it.",
+          "where_context": "lib/app/approvals/lifecycle.ex, lib/app/notifications/ (shared enqueue entry point)",
+          "acceptance_criteria": "Approval owed transition emits event\nUnit test asserts an event is enqueued when the approval is created",
+          "patterns_to_follow": "Emit inside the same Ecto.Multi as the state transition so event and state change commit atomically\nBuild the event via Event.new/1, never a bare map",
+          "pitfalls": [
+            "Do not emit on every transition \u2014 only the transition that creates an owed approval",
+            "Decide and test the failure mode when enqueue fails; it must not silently roll back the approval"
+          ],
+          "dependencies": [
+            1
+          ],
+          "key_files": [
+            {
+              "file_path": "lib/app/approvals/lifecycle.ex",
+              "note": "Hook the emit",
+              "position": 0
+            }
+          ],
+          "verification_steps": [
+            {
+              "step_type": "command",
+              "step_text": "mix test test/app/approvals/lifecycle_test.exs",
+              "expected_result": "Tests pass",
+              "position": 0
+            }
+          ],
+          "testing_strategy": {
+            "unit_tests": [
+              "Creating an owed approval enqueues exactly one :approval_owed event for the approver",
+              "Non-owed transitions enqueue nothing"
+            ],
+            "integration_tests": [
+              "Full approval create flows through to an Oban job, asserted via Oban.Testing"
+            ],
+            "manual_tests": [
+              "Not applicable \u2014 covered by Oban.Testing assertions"
+            ],
+            "edge_cases": [
+              "Approver is the approval author (self) \u2014 decide suppress vs send and test it",
+              "Approval reassigned before dispatch leaves a stale recipient"
+            ],
+            "coverage_target": "All lifecycle transition branches that can emit"
+          },
+          "security_considerations": [
+            "Recipient is derived server-side from the approval record \u2014 never from request params",
+            "Payload carries IDs and titles only, not full approval bodies, to limit PII sitting in the jobs table"
+          ]
+        },
+        {
+          "title": "Emit notification_requested from comment mentions",
+          "type": "work",
+          "complexity": "small",
+          "priority": "high",
+          "needs_review": false,
+          "description": "On comment create, scan for @mentions and emit one notification_requested event per mentioned user.",
+          "why": "Mentions are a direct ask for someone's attention; they are the second event class the spec commits to.",
+          "what": "On comment create, scan the body for @mentions, resolve them to users, and emit one notification_requested per unique mentioned user.",
+          "where_context": "lib/app/comments/mentions.ex (new scanner + emitter), comment create path in lib/app/comments/",
+          "acceptance_criteria": "Mention scanning emits one event per unique user\nUnit test covers single mention, multi-mention, self-mention (suppressed)",
+          "patterns_to_follow": "Resolve mentions with exact-match username lookups, not LIKE scans\nEmit after the comment insert commits, inside the same Multi",
+          "pitfalls": [
+            "Self-mentions are suppressed per the acceptance criteria",
+            "Duplicate @alice @alice in one comment must produce one event, not two"
+          ],
+          "dependencies": [
+            1
+          ],
+          "key_files": [
+            {
+              "file_path": "lib/app/comments/mentions.ex",
+              "note": "Mention scanner + emitter",
+              "position": 0
+            }
+          ],
+          "verification_steps": [
+            {
+              "step_type": "command",
+              "step_text": "mix test test/app/comments/mentions_test.exs",
+              "expected_result": "Tests pass",
+              "position": 0
+            }
+          ],
+          "testing_strategy": {
+            "unit_tests": [
+              "Single mention emits one event",
+              "Multiple distinct mentions emit one event each",
+              "Self-mention emits nothing",
+              "Repeated mention of the same user collapses to one event"
+            ],
+            "integration_tests": [
+              "Comment create path enqueues the expected Oban jobs"
+            ],
+            "manual_tests": [
+              "Not applicable \u2014 covered by unit and integration tests"
+            ],
+            "edge_cases": [
+              "@nonexistent-user resolves to nothing and emits nothing",
+              "Mention-like text inside code fences or email addresses (a@b.com) must not false-positive"
+            ],
+            "coverage_target": "Scanner covered across all mention shapes"
+          },
+          "security_considerations": [
+            "Comment text is untrusted input \u2014 keep the scanner regex safe against pathological input (ReDoS); the excerpt in the payload is raw text escaped later at render time",
+            "Only notify users authorized to see the commented task \u2014 a mention must not leak private task activity"
+          ]
+        },
+        {
+          "title": "Emit notification_requested when a dependency is unblocked",
+          "type": "work",
+          "complexity": "small",
+          "priority": "high",
+          "needs_review": false,
+          "description": "When a task's last blocking dependency completes, emit notification_requested for the task's owner.",
+          "why": "Owners of blocked tasks currently discover unblocks by polling the board; this event closes that gap.",
+          "what": "When a task's last blocking dependency completes, emit notification_requested for the task's owner.",
+          "where_context": "lib/app/tasks/dependencies.ex (completion transition), lib/app/notifications/",
+          "acceptance_criteria": "Dependency-unblock transition emits event\nUnit test covers single-dep and chain-of-deps cases",
+          "patterns_to_follow": "Compute 'last blocker' inside the completion transaction to avoid a race between concurrent completions\nReuse Event.new/1 and the shared enqueue entry point",
+          "pitfalls": [
+            "Two blockers completing concurrently must not double-emit \u2014 the check and emit must be atomic",
+            "Unowned tasks have no recipient; skip the emit, do not crash"
+          ],
+          "dependencies": [
+            1
+          ],
+          "key_files": [
+            {
+              "file_path": "lib/app/tasks/dependencies.ex",
+              "note": "Add emit hook",
+              "position": 0
+            }
+          ],
+          "verification_steps": [
+            {
+              "step_type": "command",
+              "step_text": "mix test test/app/tasks/dependencies_test.exs",
+              "expected_result": "Tests pass",
+              "position": 0
+            }
+          ],
+          "testing_strategy": {
+            "unit_tests": [
+              "Completing the last blocker emits for the owner",
+              "Completing a non-last blocker emits nothing",
+              "Unowned task emits nothing"
+            ],
+            "integration_tests": [
+              "Chain-of-deps scenario: completing the upstream task emits only for the directly unblocked task's owner"
+            ],
+            "manual_tests": [
+              "Not applicable \u2014 covered by tests"
+            ],
+            "edge_cases": [
+              "Concurrent completion of the two final blockers yields exactly one event",
+              "Dependency removed (not completed) also unblocks \u2014 decide whether that emits and test it"
+            ],
+            "coverage_target": "All unblock branches in dependencies.ex"
+          },
+          "security_considerations": [
+            "Recipient derived from task ownership server-side; payload limited to task IDs/titles the owner already has access to"
+          ]
+        },
+        {
+          "title": "Implement queue dedupe by (recipient_id, event_class)",
+          "type": "work",
+          "complexity": "small",
+          "priority": "high",
+          "needs_review": false,
+          "description": "Before persisting an enqueued event, look up existing pending events for the same recipient + event class and collapse the payload into the existing job.",
+          "why": "Bursty activity (five comments in one review) must not fan out into five emails; dedupe is the queue's core promise.",
+          "what": "Before persisting an enqueued event, find pending jobs for the same (recipient_id, event_class) and merge the new payload into the existing job.",
+          "where_context": "lib/app/notifications/queue.ex (new), Oban unique-jobs configuration",
+          "acceptance_criteria": "Duplicate events within a window collapse\nUnit test asserts two enqueues of the same recipient+class produce one job",
+          "patterns_to_follow": "Prefer Oban unique jobs over hand-rolled select-then-update\nMerge payloads as an append-only list so no event data is lost in the collapse",
+          "pitfalls": [
+            "Dedupe window trades against delivery latency \u2014 do not hold events until they go stale",
+            "A job already executing must not be mutated; only pending jobs merge"
+          ],
+          "dependencies": [
+            2,
+            3,
+            4
+          ],
+          "key_files": [
+            {
+              "file_path": "lib/app/notifications/queue.ex",
+              "note": "Dedupe logic",
+              "position": 0
+            }
+          ],
+          "verification_steps": [
+            {
+              "step_type": "command",
+              "step_text": "mix test test/app/notifications/queue_test.exs",
+              "expected_result": "Tests pass",
+              "position": 0
+            }
+          ],
+          "testing_strategy": {
+            "unit_tests": [
+              "Two enqueues of the same recipient+class yield one job with a merged payload",
+              "Different recipients never merge",
+              "Different event classes never merge"
+            ],
+            "integration_tests": [
+              "Concurrent enqueues from two processes still yield one job \u2014 uniqueness enforced at the DB"
+            ],
+            "manual_tests": [
+              "Not applicable \u2014 covered by tests"
+            ],
+            "edge_cases": [
+              "Event enqueued while the worker holds the matching job",
+              "Merged payload preserves occurred_at ordering"
+            ],
+            "coverage_target": "All dedupe/merge branches plus one concurrency test"
+          },
+          "security_considerations": [
+            "The dedupe key must include recipient_id \u2014 a cross-recipient merge bug would deliver one user's events (PII) to another",
+            "Cap the merge count so an attacker spamming mentions cannot bloat a job row unboundedly"
+          ]
+        }
       ]
     },
     {
@@ -35,13 +367,308 @@
       "where_context": "lib/app_web/live/notifications/preferences_live.ex (new), lib/app/accounts/, priv/repo/migrations/",
       "description": "Independent of G1 and G3. Can be claimed in parallel with either.",
       "acceptance_criteria": "Preferences LiveView lets users opt in per event class\nDND window persisted per user\nEmail-address override defaults to account email\nUnsubscribe link in every notification routes back to this UI",
-      "pitfalls": ["Do not send any email to a user who has not explicitly opted in"],
+      "pitfalls": [
+        "Do not send any email to a user who has not explicitly opted in"
+      ],
       "tasks": [
-        {"title": "Add user_notification_preferences schema and migration", "type": "work", "complexity": "small", "priority": "high", "needs_review": false, "description": "Schema fields: user_id, channel (string), event_class (string), enabled (bool), dnd_start, dnd_end, email_override.", "acceptance_criteria": "Schema + migration land\nDefault dnd window is 22:00-08:00 in the user's TZ", "dependencies": [], "key_files": [{"file_path": "priv/repo/migrations/", "note": "Migration", "position": 0}, {"file_path": "lib/app/accounts/notification_preference.ex", "note": "Schema", "position": 1}], "verification_steps": [{"step_type": "command", "step_text": "mix ecto.migrate", "expected_result": "success", "position": 0}]},
-        {"title": "Add MyApp.Accounts.NotificationPreferences context", "type": "work", "complexity": "small", "priority": "high", "needs_review": false, "description": "Context functions: get_preferences/1, update_preferences/2, channel_enabled?/3, dnd_active?/2. The dispatcher (G3) calls into this to decide whether to send.", "acceptance_criteria": "All four functions exist and have tests\nchannel_enabled? defaults to false for unrecognized channels", "dependencies": [0], "key_files": [{"file_path": "lib/app/accounts/notification_preferences.ex", "note": "Context API", "position": 0}], "verification_steps": [{"step_type": "command", "step_text": "mix test test/app/accounts/notification_preferences_test.exs", "expected_result": "Tests pass", "position": 0}]},
-        {"title": "Scaffold preferences LiveView mount and basic form", "type": "work", "complexity": "small", "priority": "high", "needs_review": false, "description": "Mount loads the user's preferences via the context; render shows a per-event-class table with opt-in checkboxes.", "acceptance_criteria": "Route /settings/notifications maps to the LiveView\nForm renders one row per event class\nSaving updates the database atomically", "dependencies": [1], "key_files": [{"file_path": "lib/app_web/live/notifications/preferences_live.ex", "note": "New LiveView", "position": 0}, {"file_path": "lib/app_web/router.ex", "note": "Route", "position": 1}], "verification_steps": [{"step_type": "command", "step_text": "mix test test/app_web/live/notifications/preferences_live_test.exs", "expected_result": "Tests pass", "position": 0}]},
-        {"title": "Add DND time-window controls to preferences form", "type": "work", "complexity": "small", "priority": "medium", "needs_review": false, "description": "Add two time-picker inputs (start, end) for the user's DND window; persist on save.", "acceptance_criteria": "Two time inputs render\nCrossing midnight is supported (e.g., 22:00-08:00)\nDND window persists across reloads", "dependencies": [2], "key_files": [{"file_path": "lib/app_web/live/notifications/preferences_live.ex", "note": "DND inputs", "position": 0}], "verification_steps": [{"step_type": "manual", "step_text": "Set DND window 22:00-08:00 and confirm dnd_active? returns true at 23:00", "expected_result": "Returns true", "position": 0}]},
-        {"title": "Add email-address override input + unsubscribe-link route", "type": "work", "complexity": "small", "priority": "medium", "needs_review": false, "description": "Email override input defaults to the account email; unsubscribe link uses a signed token route that opens the preferences page with the relevant channel toggle pre-focused.", "acceptance_criteria": "Email override saves and is used by the dispatcher in G3\nUnsubscribe route validates the signed token before showing the form", "dependencies": [2], "key_files": [{"file_path": "lib/app_web/live/notifications/preferences_live.ex", "note": "Email override", "position": 0}, {"file_path": "lib/app_web/controllers/unsubscribe_controller.ex", "note": "Token route", "position": 1}], "verification_steps": [{"step_type": "command", "step_text": "mix test test/app_web/controllers/unsubscribe_controller_test.exs", "expected_result": "Tests pass", "position": 0}]}
+        {
+          "title": "Add user_notification_preferences schema and migration",
+          "type": "work",
+          "complexity": "small",
+          "priority": "high",
+          "needs_review": false,
+          "description": "Schema fields: user_id, channel (string), event_class (string), enabled (bool), dnd_start, dnd_end, email_override.",
+          "why": "CAN-SPAM and GDPR require explicit opt-in; the schema is where 'nothing is sent by default' is enforced structurally.",
+          "what": "Add the user_notification_preferences table and schema: user_id, channel, event_class, enabled (default false), dnd_start, dnd_end, email_override.",
+          "where_context": "priv/repo/migrations/ (new), lib/app/accounts/notification_preference.ex (new)",
+          "acceptance_criteria": "Schema + migration land\nDefault dnd window is 22:00-08:00 in the user's TZ",
+          "patterns_to_follow": "Mirror the existing migration style; unique index on (user_id, channel, event_class)\nUse :time columns for dnd_start/dnd_end; TZ handling lives in the context, not the schema",
+          "pitfalls": [
+            "enabled must default false at the DB level, not just the changeset \u2014 opt-in is a legal requirement",
+            "The default 22:00-08:00 DND window crosses midnight; store raw times and leave window math to dnd_active?"
+          ],
+          "dependencies": [],
+          "key_files": [
+            {
+              "file_path": "priv/repo/migrations/",
+              "note": "Migration",
+              "position": 0
+            },
+            {
+              "file_path": "lib/app/accounts/notification_preference.ex",
+              "note": "Schema",
+              "position": 1
+            }
+          ],
+          "verification_steps": [
+            {
+              "step_type": "command",
+              "step_text": "mix ecto.migrate",
+              "expected_result": "success",
+              "position": 0
+            }
+          ],
+          "testing_strategy": {
+            "unit_tests": [
+              "Changeset validates channel and event_class against the known sets",
+              "email_override rejects malformed addresses",
+              "enabled defaults to false"
+            ],
+            "integration_tests": [
+              "mix ecto.migrate and rollback both run cleanly; the unique index rejects duplicate (user, channel, event_class) rows"
+            ],
+            "manual_tests": [
+              "Not applicable \u2014 covered by changeset and migration tests"
+            ],
+            "edge_cases": [
+              "Row without DND values falls back to the 22:00-08:00 default",
+              "Nil email_override means the account email is used"
+            ],
+            "coverage_target": "Changeset validation branches fully covered"
+          },
+          "security_considerations": [
+            "enabled=false as the DB default is the opt-in guarantee \u2014 fail closed",
+            "Validate email_override strictly; it becomes an SMTP recipient downstream (header-injection surface)",
+            "Preferences are per-user PII; FK plus unique index keep rows tied to their owner"
+          ]
+        },
+        {
+          "title": "Add MyApp.Accounts.NotificationPreferences context",
+          "type": "work",
+          "complexity": "small",
+          "priority": "high",
+          "needs_review": false,
+          "description": "Context functions: get_preferences/1, update_preferences/2, channel_enabled?/3, dnd_active?/2. The dispatcher (G3) calls into this to decide whether to send.",
+          "why": "The G3 dispatcher must not query preference rows directly; this context is the single decision seam for 'may I send?'.",
+          "what": "Add the NotificationPreferences context: get_preferences/1, update_preferences/2, channel_enabled?/3, dnd_active?/2.",
+          "where_context": "lib/app/accounts/notification_preferences.ex (new), test/app/accounts/notification_preferences_test.exs",
+          "acceptance_criteria": "All four functions exist and have tests\nchannel_enabled? defaults to false for unrecognized channels",
+          "patterns_to_follow": "Follow the existing Accounts context style (take a user or user_id, return tagged tuples)\nchannel_enabled?/3 and dnd_active?/2 must be pure lookups safe to call from the Oban worker",
+          "pitfalls": [
+            "channel_enabled? must default false for unknown channels AND for users with no preference row \u2014 fail closed both ways",
+            "dnd_active? must handle windows that cross midnight (22:00-08:00)"
+          ],
+          "dependencies": [
+            0
+          ],
+          "key_files": [
+            {
+              "file_path": "lib/app/accounts/notification_preferences.ex",
+              "note": "Context API",
+              "position": 0
+            }
+          ],
+          "verification_steps": [
+            {
+              "step_type": "command",
+              "step_text": "mix test test/app/accounts/notification_preferences_test.exs",
+              "expected_result": "Tests pass",
+              "position": 0
+            }
+          ],
+          "testing_strategy": {
+            "unit_tests": [
+              "channel_enabled? is false for unknown channel, missing row, and enabled=false; true only when explicitly enabled",
+              "dnd_active? is true at 23:00 and 07:00 for a 22:00-08:00 window and false at 12:00",
+              "update_preferences rejects writes to another user's rows"
+            ],
+            "integration_tests": [
+              "Context round-trips against the real schema via DataCase"
+            ],
+            "manual_tests": [
+              "Not applicable \u2014 covered by unit and integration tests"
+            ],
+            "edge_cases": [
+              "Degenerate window where dnd_start equals dnd_end",
+              "User timezone change mid-window"
+            ],
+            "coverage_target": "All decision branches \u2014 this gate protects legal compliance"
+          },
+          "security_considerations": [
+            "Fail-closed defaults everywhere: no row, unknown channel, and nil enabled all mean do-not-send",
+            "update_preferences/2 receives request-derived params from the LiveView \u2014 writes must be scoped to the given user's rows only"
+          ]
+        },
+        {
+          "title": "Scaffold preferences LiveView mount and basic form",
+          "type": "work",
+          "complexity": "small",
+          "priority": "high",
+          "needs_review": false,
+          "description": "Mount loads the user's preferences via the context; render shows a per-event-class table with opt-in checkboxes.",
+          "why": "Users need a place to opt in; until this page exists every channel stays legally off for everyone.",
+          "what": "Preferences LiveView at /settings/notifications: mount loads the current user's prefs via the context, the form renders one opt-in row per event class, save persists atomically.",
+          "where_context": "lib/app_web/live/notifications/preferences_live.ex (new), lib/app_web/router.ex (authenticated live scope)",
+          "acceptance_criteria": "Route /settings/notifications maps to the LiveView\nForm renders one row per event class\nSaving updates the database atomically",
+          "patterns_to_follow": "Mount behind the existing require_authenticated_user on_mount hook\nAll reads and writes go through NotificationPreferences \u2014 never Repo in the LiveView\nUse core_components form idioms",
+          "pitfalls": [
+            "Save must be atomic across rows \u2014 a partial save leaves a user half-opted-in",
+            "Do not trust event_class values from form params; map them against the known set"
+          ],
+          "dependencies": [
+            1
+          ],
+          "key_files": [
+            {
+              "file_path": "lib/app_web/live/notifications/preferences_live.ex",
+              "note": "New LiveView",
+              "position": 0
+            },
+            {
+              "file_path": "lib/app_web/router.ex",
+              "note": "Route",
+              "position": 1
+            }
+          ],
+          "verification_steps": [
+            {
+              "step_type": "command",
+              "step_text": "mix test test/app_web/live/notifications/preferences_live_test.exs",
+              "expected_result": "Tests pass",
+              "position": 0
+            }
+          ],
+          "testing_strategy": {
+            "unit_tests": [
+              "Not applicable \u2014 decision logic lives in the context; view behavior covered by LiveView tests"
+            ],
+            "integration_tests": [
+              "LiveView test: mount renders one row per event class; toggling and saving persists via the context",
+              "Unauthenticated mount redirects to login"
+            ],
+            "manual_tests": [
+              "Click through opt-in and save in the browser; reload confirms persistence"
+            ],
+            "edge_cases": [
+              "User with zero preference rows sees all toggles off",
+              "Form submit containing an unknown event_class is rejected"
+            ],
+            "coverage_target": "Mount, save, and validation paths covered by LiveView tests"
+          },
+          "security_considerations": [
+            "Route must sit in the authenticated scope \u2014 preferences are per-user PII",
+            "Persist only for socket.assigns.current_user; ignore any user identifier arriving in params",
+            "Allowlist channel/event_class params before they reach the changeset"
+          ]
+        },
+        {
+          "title": "Add DND time-window controls to preferences form",
+          "type": "work",
+          "complexity": "small",
+          "priority": "medium",
+          "needs_review": false,
+          "description": "Add two time-picker inputs (start, end) for the user's DND window; persist on save.",
+          "why": "Out-of-band notifications at 3am erode trust and get the channel muted; DND is the retention guard that makes opt-in durable.",
+          "what": "Add start/end time-picker inputs to the preferences form, persisted to dnd_start/dnd_end, supporting windows that cross midnight.",
+          "where_context": "lib/app_web/live/notifications/preferences_live.ex",
+          "acceptance_criteria": "Two time inputs render\nCrossing midnight is supported (e.g., 22:00-08:00)\nDND window persists across reloads",
+          "patterns_to_follow": "Use native time inputs via the core_components input idioms\nParse with Time.from_iso8601/1; store raw times \u2014 window math stays in dnd_active?/2",
+          "pitfalls": [
+            "22:00-08:00 crosses midnight \u2014 the UI must not helpfully swap start and end",
+            "Do not do window math in the view; the context owns it"
+          ],
+          "dependencies": [
+            2
+          ],
+          "key_files": [
+            {
+              "file_path": "lib/app_web/live/notifications/preferences_live.ex",
+              "note": "DND inputs",
+              "position": 0
+            }
+          ],
+          "verification_steps": [
+            {
+              "step_type": "manual",
+              "step_text": "Set DND window 22:00-08:00 and confirm dnd_active? returns true at 23:00",
+              "expected_result": "Returns true",
+              "position": 0
+            }
+          ],
+          "testing_strategy": {
+            "unit_tests": [
+              "Changeset accepts valid times and rejects garbage strings"
+            ],
+            "integration_tests": [
+              "LiveView test: set 22:00-08:00, save, reload \u2014 values persist",
+              "dnd_active? returns true at 23:00 with the saved window"
+            ],
+            "manual_tests": [
+              "Set the window in a browser and verify the pickers round-trip the values"
+            ],
+            "edge_cases": [
+              "Equal start and end times",
+              "Clearing the window reverts to the 22:00-08:00 default"
+            ],
+            "coverage_target": "Time parsing and persistence branches covered"
+          },
+          "security_considerations": [
+            "Time inputs are user input \u2014 parse strictly with Time.from_iso8601, never interpolate into queries",
+            "No new authz surface beyond the already-scoped preferences form"
+          ]
+        },
+        {
+          "title": "Add email-address override input + unsubscribe-link route",
+          "type": "work",
+          "complexity": "small",
+          "priority": "medium",
+          "needs_review": false,
+          "description": "Email override input defaults to the account email; unsubscribe link uses a signed token route that opens the preferences page with the relevant channel toggle pre-focused.",
+          "why": "CAN-SPAM requires a working unsubscribe in every message; the override lets users route noise to a secondary inbox instead of opting out entirely.",
+          "what": "Email override input defaulting to the account email, plus an unsubscribe route that validates a signed user+channel token and opens preferences with the channel toggle focused.",
+          "where_context": "lib/app_web/live/notifications/preferences_live.ex, lib/app_web/controllers/unsubscribe_controller.ex (new), lib/app_web/router.ex",
+          "acceptance_criteria": "Email override saves and is used by the dispatcher in G3\nUnsubscribe route validates the signed token before showing the form",
+          "patterns_to_follow": "Sign tokens with Phoenix.Token using a dedicated salt and max_age\nToken payload is {user_id, channel} only, verified server-side\nValidate the override with the same email format check as registration",
+          "pitfalls": [
+            "Unsubscribe must work without a login session (clicked from a mail client) but must not become an auth bypass into the rest of the app",
+            "Do not put the raw email address in the unsubscribe URL"
+          ],
+          "dependencies": [
+            2
+          ],
+          "key_files": [
+            {
+              "file_path": "lib/app_web/live/notifications/preferences_live.ex",
+              "note": "Email override",
+              "position": 0
+            },
+            {
+              "file_path": "lib/app_web/controllers/unsubscribe_controller.ex",
+              "note": "Token route",
+              "position": 1
+            }
+          ],
+          "verification_steps": [
+            {
+              "step_type": "command",
+              "step_text": "mix test test/app_web/controllers/unsubscribe_controller_test.exs",
+              "expected_result": "Tests pass",
+              "position": 0
+            }
+          ],
+          "testing_strategy": {
+            "unit_tests": [
+              "Token round-trip: sign then verify yields {user_id, channel}; expired and tampered tokens are rejected",
+              "Email override changeset rejects invalid addresses"
+            ],
+            "integration_tests": [
+              "Controller test: valid token renders the form pre-focused; invalid or expired token renders an error without leaking account existence"
+            ],
+            "manual_tests": [
+              "Click an unsubscribe link from a rendered email in the dev mailbox"
+            ],
+            "edge_cases": [
+              "Token for a since-deleted user",
+              "Token reused after the user already unsubscribed \u2014 idempotent result"
+            ],
+            "coverage_target": "All token verification branches covered"
+          },
+          "security_considerations": [
+            "The signed, expiring token is the sole authz for unsubscribe \u2014 verify before any state change and scope it to unsubscribe only, never session auth",
+            "Validate email_override as a single address with no CR/LF \u2014 SMTP header-injection surface",
+            "Error responses must not disclose whether an account exists"
+          ]
+        }
       ]
     },
     {
@@ -56,15 +683,305 @@
       "description": "Depends on G1 (the queue contract). Claim G1 first; this goal becomes claimable once G1's queue + dedupe land in main.",
       "acceptance_criteria": "Three event-class templates render (approval, mention, dependency-unblock)\nWorker drains the queue and dispatches via the existing Mailer\nUnsubscribe footer present in every email\nWorker respects DND windows and channel opt-in from G2's preferences context",
       "pitfalls": [
-        "Do not bypass the existing audit-log infrastructure — every notification dispatch is logged",
+        "Do not bypass the existing audit-log infrastructure \u2014 every notification dispatch is logged",
         "Do not send to a user whose preferences disable the channel"
       ],
       "tasks": [
-        {"title": "Define the email shell template (header, footer, unsubscribe link)", "type": "work", "complexity": "small", "priority": "high", "needs_review": false, "description": "Shared HTML+text shell that wraps each event-class template. Includes the CAN-SPAM-compliant unsubscribe link with a signed token.", "acceptance_criteria": "Shell renders for both HTML and plain-text variants\nUnsubscribe link includes a signed user+channel token", "dependencies": [], "key_files": [{"file_path": "lib/app/notifications/email_renderer.ex", "note": "Shell + render entry point", "position": 0}, {"file_path": "lib/app_web/templates/notifications/_shell.html.eex", "note": "Shell template", "position": 1}], "verification_steps": [{"step_type": "command", "step_text": "mix test test/app/notifications/email_renderer_test.exs", "expected_result": "Tests pass", "position": 0}]},
-        {"title": "Render approval-owed email template", "type": "work", "complexity": "small", "priority": "high", "needs_review": false, "description": "Per-event-class template for the approval flow. Plain text first; minimal HTML wrapper around it.", "acceptance_criteria": "Template renders with the approval payload\nUnit test asserts the rendered subject and body match the expected snapshot", "dependencies": [0], "key_files": [{"file_path": "lib/app_web/templates/notifications/approval_owed.text.eex", "note": "Text body", "position": 0}, {"file_path": "lib/app_web/templates/notifications/approval_owed.html.eex", "note": "HTML body", "position": 1}], "verification_steps": [{"step_type": "command", "step_text": "mix test test/app/notifications/templates/approval_owed_test.exs", "expected_result": "Tests pass", "position": 0}]},
-        {"title": "Render mention email template", "type": "work", "complexity": "small", "priority": "high", "needs_review": false, "description": "Mention notification template; shows the comment excerpt + a deep link.", "acceptance_criteria": "Template renders\nUnit test covers escaping of user-supplied comment text", "dependencies": [0], "key_files": [{"file_path": "lib/app_web/templates/notifications/mention.text.eex", "note": "Text body", "position": 0}, {"file_path": "lib/app_web/templates/notifications/mention.html.eex", "note": "HTML body", "position": 1}], "verification_steps": [{"step_type": "command", "step_text": "mix test test/app/notifications/templates/mention_test.exs", "expected_result": "Tests pass", "position": 0}]},
-        {"title": "Render dependency-unblocked email template", "type": "work", "complexity": "small", "priority": "medium", "needs_review": false, "description": "Per-event-class template for the dependency-unblock flow.", "acceptance_criteria": "Template renders\nUnit test asserts the rendered body names the unblocked task", "dependencies": [0], "key_files": [{"file_path": "lib/app_web/templates/notifications/dependency_unblocked.text.eex", "note": "Text body", "position": 0}], "verification_steps": [{"step_type": "command", "step_text": "mix test test/app/notifications/templates/dependency_unblocked_test.exs", "expected_result": "Tests pass", "position": 0}]},
-        {"title": "Implement DispatchWorker that drains :notifications and respects preferences", "type": "work", "complexity": "small", "priority": "high", "needs_review": false, "description": "Oban worker that pulls one job at a time, checks MyApp.Accounts.NotificationPreferences for channel_enabled? and dnd_active?, renders the appropriate template, and dispatches via the existing Mailer.", "acceptance_criteria": "Worker honors channel opt-in (skips if disabled)\nWorker honors DND window (delays the job if active)\nAudit-log entry written for every dispatch\nUnit tests cover the opt-out, DND-active, and happy-path branches", "dependencies": [1, 2, 3], "key_files": [{"file_path": "lib/app/notifications/workers/dispatch_worker.ex", "note": "New worker", "position": 0}], "verification_steps": [{"step_type": "command", "step_text": "mix test test/app/notifications/workers/dispatch_worker_test.exs", "expected_result": "Tests pass", "position": 0}]}
+        {
+          "title": "Define the email shell template (header, footer, unsubscribe link)",
+          "type": "work",
+          "complexity": "small",
+          "priority": "high",
+          "needs_review": false,
+          "description": "Shared HTML+text shell that wraps each event-class template. Includes the CAN-SPAM-compliant unsubscribe link with a signed token.",
+          "why": "Every outgoing message shares one shell so the CAN-SPAM unsubscribe footer and branding cannot be forgotten by any per-class template.",
+          "what": "Shared HTML and plain-text shell wrapping each event-class template, with header, footer, and a signed unsubscribe link on every message.",
+          "where_context": "lib/app/notifications/email_renderer.ex (new), lib/app_web/templates/notifications/_shell.html.eex",
+          "acceptance_criteria": "Shell renders for both HTML and plain-text variants\nUnsubscribe link includes a signed user+channel token",
+          "patterns_to_follow": "Render both HTML and text variants for every message\nBuild the unsubscribe token with the same Phoenix.Token salt/contract as G2's unsubscribe route\nBuild all links with verified route helpers",
+          "pitfalls": [
+            "The plain-text variant rots easily \u2014 assert it in tests, not just the HTML",
+            "Do not inline token-signing here; call the shared helper so salts cannot drift from the unsubscribe route"
+          ],
+          "dependencies": [],
+          "key_files": [
+            {
+              "file_path": "lib/app/notifications/email_renderer.ex",
+              "note": "Shell + render entry point",
+              "position": 0
+            },
+            {
+              "file_path": "lib/app_web/templates/notifications/_shell.html.eex",
+              "note": "Shell template",
+              "position": 1
+            }
+          ],
+          "verification_steps": [
+            {
+              "step_type": "command",
+              "step_text": "mix test test/app/notifications/email_renderer_test.exs",
+              "expected_result": "Tests pass",
+              "position": 0
+            }
+          ],
+          "testing_strategy": {
+            "unit_tests": [
+              "Shell renders HTML and text variants with header, footer, and unsubscribe link present",
+              "Unsubscribe URL contains a verifiable signed token for the recipient and channel"
+            ],
+            "integration_tests": [
+              "Renderer composes shell plus a stub inner template end to end"
+            ],
+            "manual_tests": [
+              "Preview both variants in the dev mailbox for layout sanity"
+            ],
+            "edge_cases": [
+              "Inner template producing empty content still yields a valid shell",
+              "Very long inner content does not break the footer"
+            ],
+            "coverage_target": "Both variant render paths covered"
+          },
+          "security_considerations": [
+            "The unsubscribe token must be signed and recipient-scoped \u2014 a guessable link lets anyone silence someone else's notifications",
+            "Everything interpolated into the HTML shell relies on EEx escaping; never use raw/1 on payload data"
+          ]
+        },
+        {
+          "title": "Render approval-owed email template",
+          "type": "work",
+          "complexity": "small",
+          "priority": "high",
+          "needs_review": false,
+          "description": "Per-event-class template for the approval flow. Plain text first; minimal HTML wrapper around it.",
+          "why": "Approval-owed is the flagship event class; the email must carry enough context to act on without logging in blind.",
+          "what": "Text-first approval-owed template plus a minimal HTML wrapper, rendered inside the shared shell with a deep link to the approval.",
+          "where_context": "lib/app_web/templates/notifications/approval_owed.text.eex and .html.eex",
+          "acceptance_criteria": "Template renders with the approval payload\nUnit test asserts the rendered subject and body match the expected snapshot",
+          "patterns_to_follow": "Plain text first; the HTML variant mirrors it\nThe subject-line pattern set here becomes the precedent for the other classes\nSnapshot-test the rendered subject and body",
+          "pitfalls": [
+            "Whole-body snapshot assertions break on copy tweaks \u2014 assert structure and key fields where copy is likely to change"
+          ],
+          "dependencies": [
+            0
+          ],
+          "key_files": [
+            {
+              "file_path": "lib/app_web/templates/notifications/approval_owed.text.eex",
+              "note": "Text body",
+              "position": 0
+            },
+            {
+              "file_path": "lib/app_web/templates/notifications/approval_owed.html.eex",
+              "note": "HTML body",
+              "position": 1
+            }
+          ],
+          "verification_steps": [
+            {
+              "step_type": "command",
+              "step_text": "mix test test/app/notifications/templates/approval_owed_test.exs",
+              "expected_result": "Tests pass",
+              "position": 0
+            }
+          ],
+          "testing_strategy": {
+            "unit_tests": [
+              "Renders with a full approval payload; subject and body match the snapshot",
+              "Deep link targets the approval via route helpers"
+            ],
+            "integration_tests": [
+              "Renderer selects this template for :approval_owed events"
+            ],
+            "manual_tests": [
+              "Send to the dev mailbox and eyeball both variants"
+            ],
+            "edge_cases": [
+              "Very long task title truncates gracefully",
+              "Missing optional payload keys render without crashing"
+            ],
+            "coverage_target": "Template render paths for both variants covered"
+          },
+          "security_considerations": [
+            "Approval and task titles are user input \u2014 rely on EEx escaping in the HTML variant, no raw/1",
+            "Keep the body PII-light: names and titles, not full task descriptions"
+          ]
+        },
+        {
+          "title": "Render mention email template",
+          "type": "work",
+          "complexity": "small",
+          "priority": "high",
+          "needs_review": false,
+          "description": "Mention notification template; shows the comment excerpt + a deep link.",
+          "why": "Mention emails embed user-written comment text \u2014 the one template where hostile input is guaranteed, so escaping discipline is set here.",
+          "what": "Mention template showing the comment excerpt and a deep link to the comment, in text and HTML variants.",
+          "where_context": "lib/app_web/templates/notifications/mention.text.eex and .html.eex",
+          "acceptance_criteria": "Template renders\nUnit test covers escaping of user-supplied comment text",
+          "patterns_to_follow": "Truncate the excerpt server-side to a fixed length before render\nDeep link via route helpers, never a URL from the payload\nMirror approval_owed's subject conventions",
+          "pitfalls": [
+            "Comment excerpts contain markup, emoji, and hostile strings \u2014 the escaping unit test in the acceptance criteria is the point of this task, not an afterthought"
+          ],
+          "dependencies": [
+            0
+          ],
+          "key_files": [
+            {
+              "file_path": "lib/app_web/templates/notifications/mention.text.eex",
+              "note": "Text body",
+              "position": 0
+            },
+            {
+              "file_path": "lib/app_web/templates/notifications/mention.html.eex",
+              "note": "HTML body",
+              "position": 1
+            }
+          ],
+          "verification_steps": [
+            {
+              "step_type": "command",
+              "step_text": "mix test test/app/notifications/templates/mention_test.exs",
+              "expected_result": "Tests pass",
+              "position": 0
+            }
+          ],
+          "testing_strategy": {
+            "unit_tests": [
+              "Renders with a normal excerpt",
+              "Excerpt containing script tags and HTML entities is escaped in the HTML variant",
+              "Excerpt truncation at the length cap"
+            ],
+            "integration_tests": [
+              "Renderer selects this template for :mention events"
+            ],
+            "manual_tests": [
+              "Dev-mailbox preview with an emoji-and-markup comment"
+            ],
+            "edge_cases": [
+              "Empty comment body",
+              "Multi-byte characters at the truncation boundary"
+            ],
+            "coverage_target": "Escaping and truncation branches fully covered"
+          },
+          "security_considerations": [
+            "Comment text is hostile input rendered into HTML mail \u2014 EEx auto-escaping must not be bypassed with raw/1 anywhere in this template",
+            "Deep link built from route helpers so a payload cannot smuggle an attacker-controlled URL into the email"
+          ]
+        },
+        {
+          "title": "Render dependency-unblocked email template",
+          "type": "work",
+          "complexity": "small",
+          "priority": "medium",
+          "needs_review": false,
+          "description": "Per-event-class template for the dependency-unblock flow.",
+          "why": "Completes the three-class template set so the dispatcher never encounters an event class it cannot render.",
+          "what": "Dependency-unblocked template naming the unblocked task with a deep link; text variant per the acceptance criteria, HTML via the shared shell.",
+          "where_context": "lib/app_web/templates/notifications/dependency_unblocked.text.eex",
+          "acceptance_criteria": "Template renders\nUnit test asserts the rendered body names the unblocked task",
+          "patterns_to_follow": "Mirror the structure and subject conventions of approval_owed and mention\nName both the unblocked task and the completed blocker in the body",
+          "pitfalls": [
+            "G1's dedupe may deliver several unblocks in one merged payload \u2014 render a list, not just the first entry"
+          ],
+          "dependencies": [
+            0
+          ],
+          "key_files": [
+            {
+              "file_path": "lib/app_web/templates/notifications/dependency_unblocked.text.eex",
+              "note": "Text body",
+              "position": 0
+            }
+          ],
+          "verification_steps": [
+            {
+              "step_type": "command",
+              "step_text": "mix test test/app/notifications/templates/dependency_unblocked_test.exs",
+              "expected_result": "Tests pass",
+              "position": 0
+            }
+          ],
+          "testing_strategy": {
+            "unit_tests": [
+              "Rendered body names the unblocked task",
+              "A merged payload with multiple unblocks renders all of them"
+            ],
+            "integration_tests": [
+              "Renderer selects this template for :dependency_unblocked events"
+            ],
+            "manual_tests": [
+              "Dev-mailbox preview"
+            ],
+            "edge_cases": [
+              "Blocker task deleted between enqueue and render \u2014 the body degrades gracefully"
+            ],
+            "coverage_target": "Single and merged-payload render paths covered"
+          },
+          "security_considerations": [
+            "Task titles are user input \u2014 escaped at render; the body carries IDs and titles only, no task descriptions"
+          ]
+        },
+        {
+          "title": "Implement DispatchWorker that drains :notifications and respects preferences",
+          "type": "work",
+          "complexity": "small",
+          "priority": "high",
+          "needs_review": false,
+          "description": "Oban worker that pulls one job at a time, checks MyApp.Accounts.NotificationPreferences for channel_enabled? and dnd_active?, renders the appropriate template, and dispatches via the existing Mailer.",
+          "why": "This worker is where the queue (G1) and preferences (G2) meet actual email \u2014 and where opt-in, DND, and audit compliance are enforced at send time.",
+          "what": "Oban worker on :notifications that checks channel_enabled? and dnd_active?, renders the matching template, dispatches via the existing Mailer, and audit-logs each send.",
+          "where_context": "lib/app/notifications/workers/dispatch_worker.ex (new)",
+          "acceptance_criteria": "Worker honors channel opt-in (skips if disabled)\nWorker honors DND window (delays the job if active)\nAudit-log entry written for every dispatch\nUnit tests cover the opt-out, DND-active, and happy-path branches",
+          "patterns_to_follow": "use Oban.Worker with the :notifications queue and bounded max_attempts\nOpt-out means discard with a reason; DND means snooze to the window end, never busy-retry\nAll preference checks go through the G2 context; resolve the recipient via email_override",
+          "pitfalls": [
+            "A crash after Mailer.deliver but before the audit write double-sends on retry \u2014 order the audit write so retries are safe",
+            "DND is not an error; snoozed jobs must not consume attempts"
+          ],
+          "dependencies": [
+            1,
+            2,
+            3
+          ],
+          "key_files": [
+            {
+              "file_path": "lib/app/notifications/workers/dispatch_worker.ex",
+              "note": "New worker",
+              "position": 0
+            }
+          ],
+          "verification_steps": [
+            {
+              "step_type": "command",
+              "step_text": "mix test test/app/notifications/workers/dispatch_worker_test.exs",
+              "expected_result": "Tests pass",
+              "position": 0
+            }
+          ],
+          "testing_strategy": {
+            "unit_tests": [
+              "Opt-out branch: job discarded, nothing sent, no sent-audit entry",
+              "DND branch: job snoozed until the window ends",
+              "Happy path: correct template rendered, Mailer invoked once, audit entry written"
+            ],
+            "integration_tests": [
+              "End to end: enqueue an event, run the worker via Oban.Testing, assert the delivered email via Swoosh test assertions"
+            ],
+            "manual_tests": [
+              "Trigger a real approval in dev and confirm the email arrives in the dev mailbox"
+            ],
+            "edge_cases": [
+              "Recipient deleted between enqueue and dispatch",
+              "Unknown event_class job discards with a logged reason instead of crash-looping",
+              "email_override set vs nil"
+            ],
+            "coverage_target": "Every branch of the send/skip/snooze decision tree"
+          },
+          "security_considerations": [
+            "Fail closed: any preference-lookup failure means skip, never send",
+            "Audit entries record recipient, event_class, and timestamp \u2014 not message bodies (PII minimization)",
+            "Resolve the address via the validated email_override, never from the job payload",
+            "Bounded retries prevent a retry storm from hammering the SMTP relay"
+          ]
+        }
       ]
     }
   ]

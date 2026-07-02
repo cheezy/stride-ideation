@@ -11,6 +11,8 @@ The fixtures are **not** training data. The decomposer prompt should produce the
 
 ## The three pairs
 
+Every task in every batch fixture carries the five review-queue scored fields — `acceptance_criteria`, `testing_strategy`, `security_considerations`, `pitfalls`, `patterns_to_follow` — with scenario-realistic values (tasks with no security surface use the explicit none-with-reason convention, never an empty array). This mirrors the canonical task skeleton in `agents/requirements-decomposer.md`; a fixture task missing any of the five is a regression, not a style choice.
+
 ### 1. Small / single-goal — `dark-mode-toggle`
 
 - **Requirements:** `2026-05-12T120000-dark-mode-toggle-requirements.md`
@@ -72,3 +74,5 @@ done
 ```
 
 When you intentionally update a fixture (because the requirements fixture changed, or because a prompt update legitimately produces a different shape), recompute the `source_spec_sha256` and update the committed batch file in the same commit. The stamping pipeline in `commands/stridify.md` handles this automatically when run through the slash command.
+
+`source_spec_sha256` hashes the **requirements doc**, not the batch JSON — a field-only edit to a batch fixture that leaves its sibling `*-requirements.md` untouched does not require a SHA bump.

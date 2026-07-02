@@ -28,13 +28,44 @@
           "description": "Replace bg-white, text-gray-900, border-gray-200, etc. with bg-base-100, text-base-content, border-base-300 in lib/app_web/components/core_components.ex so dark mode can swap palettes by flipping data-theme alone.",
           "acceptance_criteria": "All hardcoded Tailwind colors in core_components.ex replaced with daisyUI semantic tokens\nLight-mode rendering unchanged on the 14 known routes\nGrep for hardcoded Tailwind color classes returns zero hits in core_components",
           "patterns_to_follow": "Use daisyUI semantic tokens listed in app.css (bg-base-100, text-base-content, border-base-300, etc.)\nDo not introduce hex colors or arbitrary Tailwind values",
-          "pitfalls": ["Do not change component prop names or behavior — color migration only"],
+          "pitfalls": [
+            "Do not change component prop names or behavior \u2014 color migration only"
+          ],
           "dependencies": [],
           "key_files": [
-            {"file_path": "lib/app_web/components/core_components.ex", "note": "Color migration target", "position": 0}
+            {
+              "file_path": "lib/app_web/components/core_components.ex",
+              "note": "Color migration target",
+              "position": 0
+            }
           ],
           "verification_steps": [
-            {"step_type": "command", "step_text": "grep -E 'bg-white|text-gray-[0-9]|border-gray-[0-9]' lib/app_web/components/core_components.ex", "expected_result": "no matches", "position": 0}
+            {
+              "step_type": "command",
+              "step_text": "grep -E 'bg-white|text-gray-[0-9]|border-gray-[0-9]' lib/app_web/components/core_components.ex",
+              "expected_result": "no matches",
+              "position": 0
+            }
+          ],
+          "testing_strategy": {
+            "unit_tests": [
+              "Existing core_components tests pass unchanged after the token swap"
+            ],
+            "integration_tests": [
+              "Render each of the 14 known routes in light mode and compare against the pre-migration baseline"
+            ],
+            "manual_tests": [
+              "Visual spot-check of buttons, tables, flashes, and form inputs in light mode",
+              "Manually flip data-theme to dark and confirm the tokens respond"
+            ],
+            "edge_cases": [
+              "Components that build class strings conditionally \u2014 grep for interpolation around color classes",
+              "Hover/focus/disabled variants (hover:bg-gray-100 etc.) hiding hardcoded colors"
+            ],
+            "coverage_target": "Existing component test suite stays green; no new coverage expected for a class-only change"
+          },
+          "security_considerations": [
+            "None \u2014 pure CSS token migration, no input, authz, or data handling touched"
           ]
         },
         {
@@ -46,13 +77,46 @@
           "description": "Same migration as the previous task, applied to lib/app_web/components/delayed_modal.ex. Necessary so modal overlays match the rest of the UI when the theme flips.",
           "acceptance_criteria": "All hardcoded Tailwind colors in delayed_modal.ex replaced with daisyUI tokens\nModal overlay backdrop uses bg-base-200/90 not bg-black/50\nLight-mode modal rendering visually unchanged",
           "patterns_to_follow": "Mirror the token choices used in core_components.ex",
-          "pitfalls": ["Do not touch modal interaction logic — color migration only"],
-          "dependencies": [0],
+          "pitfalls": [
+            "Do not touch modal interaction logic \u2014 color migration only"
+          ],
+          "dependencies": [
+            0
+          ],
           "key_files": [
-            {"file_path": "lib/app_web/components/delayed_modal.ex", "note": "Modal-overlay color migration", "position": 0}
+            {
+              "file_path": "lib/app_web/components/delayed_modal.ex",
+              "note": "Modal-overlay color migration",
+              "position": 0
+            }
           ],
           "verification_steps": [
-            {"step_type": "manual", "step_text": "Open a modal in light mode and confirm visual rendering unchanged from baseline", "expected_result": "No visual regression", "position": 0}
+            {
+              "step_type": "manual",
+              "step_text": "Open a modal in light mode and confirm visual rendering unchanged from baseline",
+              "expected_result": "No visual regression",
+              "position": 0
+            }
+          ],
+          "testing_strategy": {
+            "unit_tests": [
+              "Existing delayed_modal tests pass unchanged after the token swap"
+            ],
+            "integration_tests": [
+              "Open a modal on a representative route in light mode and compare against baseline"
+            ],
+            "manual_tests": [
+              "Open a modal in light mode and confirm no visual regression per the verification step",
+              "Flip to dark and confirm the backdrop uses bg-base-200/90"
+            ],
+            "edge_cases": [
+              "Backdrop opacity stacking when modals overlay dark surfaces",
+              "Focus-ring and border colors on modal buttons inherit tokens correctly"
+            ],
+            "coverage_target": "Existing modal test coverage unchanged; no interaction logic touched"
+          },
+          "security_considerations": [
+            "None \u2014 pure CSS token migration in a modal component, no input or authz touched"
           ]
         },
         {
@@ -64,14 +128,50 @@
           "description": "Add a string column theme to user_preferences (or create the table if absent) with values 'light' or 'dark'. Default 'light'. Adds the storage that the LiveView toggle will write to and the FOUC script will read from.",
           "acceptance_criteria": "Migration creates or extends user_preferences with a theme string column\nDefault value is 'light'\nUser schema exposes the new field via the existing changeset",
           "patterns_to_follow": "Mirror the existing migration style under priv/repo/migrations/\nUse a string column with a check constraint, not an enum (daisyUI grows palettes; check constraint can widen)",
-          "pitfalls": ["Do not migrate existing rows — let them fall back to the default"],
+          "pitfalls": [
+            "Do not migrate existing rows \u2014 let them fall back to the default"
+          ],
           "dependencies": [],
           "key_files": [
-            {"file_path": "priv/repo/migrations/", "note": "New migration file", "position": 0},
-            {"file_path": "lib/app/accounts/user.ex", "note": "Expose theme through the changeset", "position": 1}
+            {
+              "file_path": "priv/repo/migrations/",
+              "note": "New migration file",
+              "position": 0
+            },
+            {
+              "file_path": "lib/app/accounts/user.ex",
+              "note": "Expose theme through the changeset",
+              "position": 1
+            }
           ],
           "verification_steps": [
-            {"step_type": "command", "step_text": "mix ecto.migrate", "expected_result": "migration runs successfully", "position": 0}
+            {
+              "step_type": "command",
+              "step_text": "mix ecto.migrate",
+              "expected_result": "migration runs successfully",
+              "position": 0
+            }
+          ],
+          "testing_strategy": {
+            "unit_tests": [
+              "Changeset accepts 'light' and 'dark' and rejects any other value",
+              "Rows created without a theme resolve to the 'light' default"
+            ],
+            "integration_tests": [
+              "mix ecto.migrate and mix ecto.rollback both run cleanly"
+            ],
+            "manual_tests": [
+              "Inspect a freshly migrated row and confirm the DB-level default is 'light'"
+            ],
+            "edge_cases": [
+              "Existing user_preferences rows fall back to the default without a data migration",
+              "Check constraint rejects values outside the allowlist at the DB level"
+            ],
+            "coverage_target": "All changeset validation branches for the new field covered"
+          },
+          "security_considerations": [
+            "Validate theme against the 'light'/'dark' allowlist in the changeset \u2014 the value is later echoed into the data-theme DOM attribute",
+            "Theme is per-user preference data; writes must be scoped to the current user's own row"
           ]
         },
         {
@@ -83,14 +183,54 @@
           "description": "Add a small LiveView component that renders a sun/moon icon button. Clicking it sends a phx-click event that updates the user's preference and pushes the data-theme attribute change to the DOM via a JS hook.",
           "acceptance_criteria": "Component renders in the app header\nClick toggles between light/dark in under 50ms\nUser preference column updates atomically with the visual change\nKeyboard accessible (Enter/Space activate)",
           "patterns_to_follow": "Use the existing core_components button + icon idioms\nUpdate the preference through MyApp.Accounts, not Repo directly",
-          "pitfalls": ["Do not flash the wrong-theme paint on toggle — push the attribute change before the LiveView re-renders"],
-          "dependencies": [0, 2],
+          "pitfalls": [
+            "Do not flash the wrong-theme paint on toggle \u2014 push the attribute change before the LiveView re-renders"
+          ],
+          "dependencies": [
+            0,
+            2
+          ],
           "key_files": [
-            {"file_path": "lib/app_web/components/theme_toggle.ex", "note": "New component", "position": 0},
-            {"file_path": "lib/app_web/components/layouts/root.html.heex", "note": "Wire into header", "position": 1}
+            {
+              "file_path": "lib/app_web/components/theme_toggle.ex",
+              "note": "New component",
+              "position": 0
+            },
+            {
+              "file_path": "lib/app_web/components/layouts/root.html.heex",
+              "note": "Wire into header",
+              "position": 1
+            }
           ],
           "verification_steps": [
-            {"step_type": "manual", "step_text": "Click the toggle in both modes; observe no FOUC and the preference persists across reloads", "expected_result": "Smooth transition, persistent state", "position": 0}
+            {
+              "step_type": "manual",
+              "step_text": "Click the toggle in both modes; observe no FOUC and the preference persists across reloads",
+              "expected_result": "Smooth transition, persistent state",
+              "position": 0
+            }
+          ],
+          "testing_strategy": {
+            "unit_tests": [
+              "LiveView test: phx-click flips the theme assign and persists via MyApp.Accounts",
+              "Component renders the sun icon in light mode and moon in dark"
+            ],
+            "integration_tests": [
+              "Toggle, reload the page, and confirm the persisted theme is applied on mount"
+            ],
+            "manual_tests": [
+              "Keyboard test: Tab to the toggle and activate with Enter and with Space",
+              "Watch for wrong-theme paint during toggle in both directions"
+            ],
+            "edge_cases": [
+              "Rapid double-click \u2014 the second event must not race the first preference write",
+              "Unauthenticated visitor falls back to cookie persistence"
+            ],
+            "coverage_target": "New component and its event handler fully covered by LiveView tests"
+          },
+          "security_considerations": [
+            "Derive the user from socket assigns, never from event params \u2014 a crafted phx-click payload must not update another user's preference",
+            "Treat any client-sent theme value as untrusted; allowlist to 'light'/'dark' before persisting"
           ]
         },
         {
@@ -102,13 +242,48 @@
           "description": "Add a tiny inline script at the top of the head that reads the theme preference (from cookie for guests, from data attribute on body for logged-in users injected server-side) and sets data-theme on the html element before stylesheets load. Eliminates the wrong-theme flash on first paint.",
           "acceptance_criteria": "Inline script runs before <link rel=\"stylesheet\"> tags\nNo visible wrong-theme flash on first paint in dark mode\nScript is <500 bytes inline so it doesn't bloat the document head",
           "patterns_to_follow": "Server-side renders the user's preference into a data attribute on body when authenticated\nFalls back to a cookie for guests so toggle works pre-login too",
-          "pitfalls": ["Do not load external JS for this — it MUST be inline to beat the FOUC window"],
-          "dependencies": [2, 3],
+          "pitfalls": [
+            "Do not load external JS for this \u2014 it MUST be inline to beat the FOUC window"
+          ],
+          "dependencies": [
+            2,
+            3
+          ],
           "key_files": [
-            {"file_path": "lib/app_web/components/layouts/root.html.heex", "note": "Inline script + body data attribute", "position": 0}
+            {
+              "file_path": "lib/app_web/components/layouts/root.html.heex",
+              "note": "Inline script + body data attribute",
+              "position": 0
+            }
           ],
           "verification_steps": [
-            {"step_type": "manual", "step_text": "Hard-reload in dark mode and watch for a flash — there must be none", "expected_result": "No flash", "position": 0}
+            {
+              "step_type": "manual",
+              "step_text": "Hard-reload in dark mode and watch for a flash \u2014 there must be none",
+              "expected_result": "No flash",
+              "position": 0
+            }
+          ],
+          "testing_strategy": {
+            "unit_tests": [
+              "Not applicable \u2014 the inline script has no server-side unit surface; logic lives in the layout template"
+            ],
+            "integration_tests": [
+              "Layout test asserts the inline script precedes the first stylesheet link and the body data attribute carries the authenticated user's theme"
+            ],
+            "manual_tests": [
+              "Hard-reload in dark mode with cache disabled and watch for a flash \u2014 there must be none",
+              "Test as a guest with the theme cookie set and unset"
+            ],
+            "edge_cases": [
+              "Cookie holds a garbage value \u2014 script falls back to 'light' without a JS error",
+              "Cookies/storage blocked by the browser \u2014 default theme applies silently"
+            ],
+            "coverage_target": "Layout rendering covered by existing layout/controller tests plus the new ordering assertion"
+          },
+          "security_considerations": [
+            "Server-injected theme must be the validated 'light'/'dark' string only \u2014 never interpolate raw cookie or user input into the inline script (XSS)",
+            "Keep the script static so it can carry a CSP nonce or hash if a Content-Security-Policy is added later"
           ]
         }
       ]
