@@ -81,10 +81,11 @@ The root key is **`"goals"` — never `"tasks"`**. Sending `{"tasks": [...]}` is
           "testing_strategy": {
             "unit_tests": ["string"],
             "integration_tests": ["string"],
-            "manual_tests": [],
-            "edge_cases": [],
-            "coverage_target": ""
-          }
+            "manual_tests": ["string"],
+            "edge_cases": ["string"],
+            "coverage_target": "string"
+          },
+          "security_considerations": ["string — specific implication (input validation, authz boundary, secret handling), or an explicit \"None — <reason>\"; never an empty array"]
         }
       ]
     }
@@ -111,11 +112,23 @@ Other format gotchas worth pinning explicitly:
 - `priority` is one of `"low"`, `"medium"`, `"high"`, `"critical"`. Default `"medium"`.
 - `needs_review` is a boolean. **Always `false` in agent-generated output** — humans decide which tasks need review by moving them through columns.
 
+## The five review-queue scored fields (never omit these)
+
+Every task you emit — every task in every goal — MUST carry all five of these fields:
+
+`acceptance_criteria`, `testing_strategy`, `security_considerations`, `pitfalls`, `patterns_to_follow`
+
+The Stride review queue scores every completed task on these five fields. An omitted or empty field renders an **empty pill** on the review queue for every task of every goal shipped through `/stridify` — visible, public, and never back-filled. There is no "it came from the requirements doc" discount: context in the doc does not excuse a blank field.
+
+- `testing_strategy`: `unit_tests`, `integration_tests`, and `manual_tests` are **arrays of strings** — never prose. Empty arrays render empty pills; populate each key realistically for the task's actual scope.
+- `security_considerations`: an **array of strings** naming specific implications (input validation, authorization boundaries, secret handling, injection surfaces, data exposure). If a task genuinely has no security surface, say so explicitly with the reason — `["None — pure CSS/styling change, no input or authz touched"]` — never an empty array.
+
 ## What you MUST NOT emit
 
 The calling command (`/stride-ideation:stridify`) and the Stride API enforce strict allow-lists. Do not include any of the following in your output:
 
 - **`source_spec`** and **`source_spec_sha256`** — the calling command stamps these at the JSON root after you return. If you emit them, the orchestrator overwrites them.
+- **`created_by_agent`** — a runtime value you cannot know; the calling command stamps it at ship time, after you return. If you emit it, the orchestrator overwrites it.
 - **`identifier`** (W-/D-/G-prefixed strings) — auto-generated server-side. Specifying one fails the batch.
 - **`status`**, **`position`**, **`claimed_at`**, **`claim_expires_at`** — workflow-managed fields the server controls.
 - **`completed_at`**, **`completed_by_*`**, **`completion_summary`**, **`actual_complexity`**, **`actual_files_changed`**, **`time_spent_minutes`** — actuals recorded at task completion.
@@ -173,7 +186,15 @@ Input (excerpt): a requirements doc for "add a dark mode toggle" — single seam
           "verification_steps": [
             {"step_type": "command", "step_text": "grep -E 'bg-white|text-gray-900|border-gray-200' lib/app_web/components/core_components.ex", "expected_result": "no matches", "position": 0},
             {"step_type": "manual", "step_text": "Spot-check 3 routes in light mode in the browser", "expected_result": "Visual rendering unchanged from baseline", "position": 1}
-          ]
+          ],
+          "testing_strategy": {
+            "unit_tests": ["Existing core_components tests pass unchanged"],
+            "integration_tests": ["Existing LiveView tests covering the 14 known routes pass unchanged"],
+            "manual_tests": ["Spot-check 3 routes in light mode against the current baseline"],
+            "edge_cases": ["Components that accept caller-supplied class overrides still merge them correctly"],
+            "coverage_target": "No new tests — behavior-preserving color migration"
+          },
+          "security_considerations": ["None — pure CSS token migration, no input handling or authorization touched"]
         }
       ]
     }
@@ -219,7 +240,15 @@ Input (excerpt): a requirements doc for "notifications system" — three orthogo
           ],
           "verification_steps": [
             {"step_type": "command", "step_text": "mix test test/app/notifications/queue_test.exs", "expected_result": "All tests pass", "position": 0}
-          ]
+          ],
+          "testing_strategy": {
+            "unit_tests": ["Two events with the same (recipient_id, event_class) produce a single persisted job", "Event shape validation rejects payloads missing recipient_id or event_class"],
+            "integration_tests": ["Worker runs under the supervised :notifications queue and drains a seeded event end-to-end"],
+            "manual_tests": ["Enqueue a test event in iex and confirm exactly one job appears for the recipient"],
+            "edge_cases": ["Duplicate events arriving concurrently", "Unknown event_class values are rejected, not silently dropped"],
+            "coverage_target": "Dedupe and validation paths fully covered"
+          },
+          "security_considerations": ["Event payload originates from user actions (comment mentions) — validate its shape before persisting and never interpolate it into queries", "Dedupe key must include recipient_id so one user's events cannot suppress another user's notifications"]
         }
       ]
     }
@@ -268,7 +297,15 @@ The decomposer would split at the layer seam and emit two goals in claim order. 
           ],
           "verification_steps": [
             {"step_type": "command", "step_text": "mix test test/app/notifications/notification_test.exs", "expected_result": "All tests pass", "position": 0}
-          ]
+          ],
+          "testing_strategy": {
+            "unit_tests": ["Changeset happy path with all required fields", "Changeset errors on missing recipient_id and missing event_class"],
+            "integration_tests": ["Insert via Repo round-trips the payload map and nil read_at"],
+            "manual_tests": ["None needed — fully covered by changeset and Repo tests"],
+            "edge_cases": ["nil read_at (unread) vs. set read_at", "payload maps with unexpected keys"],
+            "coverage_target": "All changeset branches covered"
+          },
+          "security_considerations": ["payload is a free-form map persisted to the database — validate expected keys in the changeset and treat contents as untrusted on read", "recipient_id must be enforced as a foreign key so notifications cannot be attached to arbitrary or nonexistent users"]
         }
         // ... 5 more tasks: migration, preferences schema, create_notification, list_for_user, mark_read context functions
       ]
@@ -303,7 +340,15 @@ The decomposer would split at the layer seam and emit two goals in claim order. 
           ],
           "verification_steps": [
             {"step_type": "command", "step_text": "mix test test/app_web/live/notifications/notifications_live_test.exs", "expected_result": "All tests pass", "position": 0}
-          ]
+          ],
+          "testing_strategy": {
+            "unit_tests": ["Mount assigns only the current user's notifications", "handle_event(\"mark_read\", ...) delegates to the context and updates assigns"],
+            "integration_tests": ["LiveView test: mount via authenticated conn, click mark-read, assert the item re-renders as read"],
+            "manual_tests": ["Log in, visit /notifications, mark one read, reload, confirm it stays read"],
+            "edge_cases": ["Empty notification list renders the empty state", "mark_read with an id not owned by current_user is rejected"],
+            "coverage_target": "Mount and every handle_event path covered"
+          },
+          "security_considerations": ["Route must sit inside the authenticated live_session — mount never renders without current_user", "mark_read must scope the notification lookup to current_user so users cannot read or mutate others' notifications", "Render notification payload content as escaped text — never raw/1"]
         }
         // ... 7 more tasks: Presence wiring, unread badge, preferences form component, header indicator, mark-all-read action, route auth, telemetry
       ]

@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Fixed — requirements-decomposer aligned on the five review-queue scored fields (W1460)
+
+The decomposer agent was internally inconsistent about the task field set: its canonical skeleton documented `testing_strategy` but no worked example carried it, and `security_considerations` appeared exactly once (a type-shape aside) — in no skeleton, example, or callout — so an agent following the definition would never emit it, leaving empty review-queue pills on every task of every goal shipped through `/stridify`. The canonical task skeleton now carries all five scored fields (`acceptance_criteria`, `testing_strategy`, `security_considerations`, `pitfalls`, `patterns_to_follow`), with `security_considerations` annotated with the none-with-reason convention and the `testing_strategy` placeholders no longer modeling empty arrays. All four example task objects across the three worked examples gained realistic `testing_strategy` and `security_considerations` values in the existing voice. A new "The five review-queue scored fields (never omit these)" callout names the fields and the empty-pill consequence, mirroring the canonical stride plugin skills. `created_by_agent` joined the do-not-emit list (a runtime value the decomposer cannot know; stamped at ship time).
+
 ## [0.10.0] - 2026-06-26
 
 Adds a **challenge gate** to the `/stride-ideation:ideate` loop — a mandatory, profile-independent step that stress-tests the design before the requirements doc is committed. The premortem (round 4) inverts the framing to surface the single most likely failure mode; the challenge gate is deliberately broader, auditing confidence in *every* assumption, scanning for blind spots the premortem misses, and forcing a comparison against real alternatives. Like the reviewer pass, it is advisory and never blocks the write.
