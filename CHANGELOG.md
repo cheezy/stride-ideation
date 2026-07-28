@@ -4,6 +4,24 @@ All notable changes to the `stride-ideation` plugin are documented here.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Release record — tags without a GitHub release
+
+*This is a record-keeping note, not a release. It describes no change to this plugin and carries no version.*
+
+A fleet-wide audit found **1 tag** in this repository that is tagged and pushed but has no corresponding GitHub release. **The gap is accepted and will not be backfilled.** It is recorded here so the next release engineer does not rediscover and re-litigate it:
+
+- `v0.1.0` — 2026-05-12
+
+This is the plugin's original `v0.1.0` tag, cut at first publication before the release ritual settled.
+
+Why accepted rather than backfilled:
+
+- **Nothing resolved through this release.** A GitHub release is a human-readable record, not a resolution mechanism — nothing installs *through* one. The missing release cost nothing at the time and costs nothing now.
+- **Backfilling would be worse than the gap.** A release created today against a commit from May would be dated today, and would manufacture a record for a state no user ever resolved through — misrepresenting the very history it claims to document.
+- **The convention itself is unchanged.** This is an omission from one early cycle, not a policy shift. Every tag still gets a release going forward.
+
+The audit also found **zero** GitHub releases without a matching tag, so the record is incomplete in only this one direction.
+
 ## [0.11.0] - 2026-07-02
 
 An accuracy-and-behavior release: the decomposer contract, calibration fixtures, and batch validator now all enforce and model the five review-queue scored fields; shipped goals are attributed via `created_by_agent`; and every stale doc claim surfaced by the audit is corrected. Eight entries below (W1460–W1467).
