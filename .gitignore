@@ -13,3 +13,4 @@
 
 # stride-ideation intra-session autosave scratch drafts (never commit)
 .stride/
+.stride_auth.md
