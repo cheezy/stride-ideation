@@ -22,6 +22,18 @@ Why accepted rather than backfilled:
 
 The audit also found **zero** GitHub releases without a matching tag, so the record is incomplete in only this one direction.
 
+## [0.11.1] - 2026-08-21
+
+A housekeeping release: no behavior change to `/ideate` or `/stridify`. The `lean` profile's README description stops defining itself by reference to a version number, and the repo now ignores the Stride agent's local credential file.
+
+### Fixed
+
+- **The `lean` profile row in the README's profile table described the profile as "byte-for-byte equivalent to v0.3.0 behavior".** That tells a reader what `lean` was, not what it does — and the reference gets less useful with every release that moves past it, since reconstructing v0.3.0's behavior means reading a changelog backwards. The cell now states the profile positively: `lean` adds no augmentations and runs the shared core only — the seven hard-gated sections plus the mandatory round-3 framing checkpoint, round-4 premortem, and challenge gate — with no extra forcing questions, no optional document sections, and no profile-specific reviewer checks. The other three rows already described themselves this way; `lean` was the odd one out.
+
+### Security
+
+- **`.stride_auth.md` is now in `.gitignore`.** The file holds a live Stride API token and is written into any repo where the agent workflow runs, this one included. Nothing had committed it, but the only thing standing between the token and a push was that nobody had run `git add -A` at the wrong moment.
+
 ## [0.11.0] - 2026-07-02
 
 An accuracy-and-behavior release: the decomposer contract, calibration fixtures, and batch validator now all enforce and model the five review-queue scored fields; shipped goals are attributed via `created_by_agent`; and every stale doc claim surfaced by the audit is corrected. Eight entries below (W1460–W1467).
