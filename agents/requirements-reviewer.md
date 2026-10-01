@@ -71,18 +71,23 @@ Return a single fenced ```json block with this shape:
 
 ```json
 {
-  "verdict": "approved" | "issues_found",
+  "verdict": "issues_found",
   "summary": "<one-sentence summary, e.g. 'Approved — no substantive issues' or '3 issues found across Success Metrics and Non-goals'>",
   "issues": [
     {
-      "severity": "blocking" | "advisory",
-      "section": "Goal" | "Problem" | "Outcome" | "Assumptions" | "Constraints" | "Non-goals" | "Success Metrics" | "Concrete Example" | "MVP / Validation experiment" | "cross-section" | "scope" | "ambiguity",
+      "severity": "advisory",
+      "section": "Success Metrics",
       "description": "<one-sentence problem statement>",
       "suggestion": "<one-sentence remediation hint, optional>"
     }
   ]
 }
 ```
+
+Field values (the block above is a template and parses as JSON; these are the allowed values):
+- `verdict` is `"approved"` or `"issues_found"`.
+- `severity` is `"blocking"` or `"advisory"`.
+- `section` is one of `"Goal"`, `"Problem"`, `"Outcome"`, `"Assumptions"`, `"Constraints"`, `"Non-goals"`, `"Success Metrics"`, `"Concrete Example"`, `"MVP / Validation experiment"`, `"cross-section"`, `"scope"`, `"ambiguity"`.
 
 Rules:
 - `verdict: "approved"` ⇔ `issues` is empty.

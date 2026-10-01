@@ -22,6 +22,12 @@ Why accepted rather than backfilled:
 
 The audit also found **zero** GitHub releases without a matching tag, so the record is incomplete in only this one direction.
 
+## [Unreleased]
+
+### Fixed — the reviewer's output-format block parses as JSON (D346)
+
+`agents/requirements-reviewer.md` wrote its output schema with `"approved" | "issues_found"`, `"blocking" | "advisory"` and a twelve-way `section` union inside the ```json fence. That is not JSON, so a model copying the fence verbatim emitted invalid JSON. The block is now a parseable template, and the allowed `verdict`, `severity` and `section` values are listed in prose beneath it, unchanged. A new `lib/test-agent-json.sh` parses every ```json fence in both agent prompts with `json.loads`, requires at least one fence per prompt, and proves itself against a planted union. `lib/run_smoke_test.sh` runs it as Stage 6b.
+
 ## [0.12.0] - 2026-10-01
 
 A hardening pass over `/ideate` and `/stridify` from a full plugin review: the token never reaches a command line, every Bash fragment runs correctly in the fresh shell each tool call gets, commits contain only the artifact, autosave actually happens, and the validator and section gate are scripted. Also includes three earlier fixes (D343, D344, D345) that had not yet been released.

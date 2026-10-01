@@ -245,6 +245,18 @@ else
   nope "challenge-gate fixture not found" "$GATE_FIXTURE"
 fi
 
+# --- Stage 6b: agent prompt json fences ------------------------------------
+# Every fenced json block in agents/requirements-reviewer.md and
+# agents/requirements-decomposer.md must parse (D346). The checks, and their
+# planted-union control, live in lib/test-agent-json.sh.
+
+printf '\nStage 6b: agent prompt json fences\n'
+if AGENT_JSON_OUT="$(bash "${SCRIPT_DIR}/test-agent-json.sh" 2>&1)"; then
+  ok "every json fence in both agent prompts parses (lib/test-agent-json.sh)"
+else
+  nope "lib/test-agent-json.sh failed" "$AGENT_JSON_OUT"
+fi
+
 # --- Stage 7: LIVE POST (only if --live) -----------------------------------
 
 if [ "$MODE" = "live" ]; then
