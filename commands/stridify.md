@@ -38,11 +38,19 @@ Before doing any expensive work, the command must confirm the input is a real, p
 
 2. **Filename family matches.** The path SHOULD end in `-requirements.md`. If it does not, warn but proceed — the slug-extraction step below may still succeed for paths produced by older versions of the plugin, and the section-validation pass below is the authoritative check anyway.
 
-3. **All seven hard-gated sections are present.** Use `Grep` to verify that the file contains a level-2 heading for each of: `Problem`, `Goal`, `Outcome`, `Assumptions`, `Constraints`, `Non-goals`, `Success metrics`. Order is not enforced (the doc template orders Problem before Goal, but a hand-edited doc may differ). If any heading is missing, print:
+3. **All seven hard-gated sections are present.** `lib/check_sections.py` checks that the file has a level-2 heading for each of: `Problem`, `Goal`, `Outcome`, `Assumptions`, `Constraints`, `Non-goals`, `Success metrics`. Headings match case-insensitively with trailing whitespace ignored (so the skill's `Success Metrics` and the template's `Success metrics` both pass), headings inside code fences do not count, and order is not enforced (the doc template orders Problem before Goal, but a hand-edited doc may differ):
 
-   > *"stride-ideation: requirements doc is missing required section(s): `<list>`. Either re-run `/stride-ideation:ideate --continue <path>` to fill them in, or hand-edit the doc to include the missing sections."*
+   ```bash
+   # Carried forward: REQUIREMENTS_PATH
+   : "${REQUIREMENTS_PATH:?stride-ideation: REQUIREMENTS_PATH was not carried forward from Step 1}"
+   [ -n "${CLAUDE_PLUGIN_ROOT}" ] || { echo "stride-ideation: CLAUDE_PLUGIN_ROOT is not set — run this from the installed stride-ideation plugin" >&2; exit 1; }
+   python3 "${CLAUDE_PLUGIN_ROOT}/lib/check_sections.py" "$REQUIREMENTS_PATH" || {
+     echo "stride-ideation: either re-run /stride-ideation:ideate --continue on this doc to fill them in, or hand-edit the doc to include the missing sections." >&2
+     exit 1
+   }
+   ```
 
-   And exit non-zero. Do NOT proceed with a partial doc — the decomposer subagent's output quality depends on every section being substantive.
+   On a missing section it prints *"stride-ideation: requirements doc is missing required section(s): `<list>`"* plus the remedy line, and exits non-zero. Do NOT proceed with a partial doc — the decomposer subagent's output quality depends on every section being substantive.
 
 4. **Advisory: large-decomposition warning (never blocks).** If the doc contains a `## Decomposition seams` section AND `GOAL_ARG` is unset (the user did NOT invoke with `--goal`), count the seams under that heading. If the count is **greater than 3**, print a single advisory line to stderr and continue execution — this is a UX hint, not a gate. When `--goal` IS set (per-goal mode), do NOT print this advisory — the user has already partitioned and emitting noise on top is counter-productive. When the seams section is absent or enumerates ≤3 surfaces, also skip the advisory.
 
@@ -386,9 +394,9 @@ computed by Step 5; for the run that produced this file, that path was
 
     python3 "${CLAUDE_PLUGIN_ROOT}/lib/validate_batch.py" "<BATCH_TARGET_PATH>"
 
-to confirm the JSON parses against the validator's five named checks
+to confirm the JSON passes the validator's six named checks
 (parse_error / wrong_root_key / empty_goals / goal_missing_field /
-bad_dependency_index). On success, ship it exactly as Step 9 of
+bad_dependency_index / length_limit). On success, ship it exactly as Step 9 of
 `commands/stridify.md` does:
 
     bash "${CLAUDE_PLUGIN_ROOT}/lib/ship.sh" "<BATCH_TARGET_PATH>"
@@ -451,9 +459,9 @@ The validator enforces six named checks, in order, followed by an advisory (non-
 | Check | Failure mode | Example error message |
 |---|---|---|
 | (a) `parse_error` | Input is not valid JSON | `JSON parse failed at line 3 col 7 (char 24): Expecting property name enclosed in double quotes` |
-| (b) `wrong_root_key` | Root has `tasks` or any key other than `goals` | `root key 'tasks' is the most common batch-API mistake — Stride's POST /api/tasks/batch requires root key 'goals'` |
+| (b) `wrong_root_key` | Root has `tasks` (instead of, or alongside, `goals`) or any key other than `goals` | `root key 'tasks' is the most common batch-API mistake — Stride's POST /api/tasks/batch requires root key 'goals'` |
 | (c) `empty_goals` | `goals` missing, not an array, or empty | `root.goals is an empty array — the decomposer returned no goals` |
-| (d) `goal_missing_field` | A goal lacks `title`, `type`, or `tasks`, or a task is malformed | `goals[0] is missing required field 'title'` |
+| (d) `goal_missing_field` | A goal lacks `title`, `type`, or `tasks`; or a task is not an object with a non-empty string `title` and a `type` of `work` or `defect` | `goals[0] is missing required field 'title'`, `goals[0].tasks[1].type must be 'work' or 'defect', got 'goal'` |
 | (e) `bad_dependency_index` | A task's `dependencies[]` index is out of range, negative, or a forward / self reference | `goals[0].tasks[1].dependencies references index 5 but goal only has 2 tasks (valid indices 0..1)` |
 | (f) `length_limit` | A goal/task `title` or a `security_considerations` element exceeds 255 Unicode code points — the server binds these to `varchar(255)` and rejects longer values with an opaque error | `goals[0].tasks[1].security_considerations[2] is 271 characters — the server column is varchar(255) and rejects longer values` |
 

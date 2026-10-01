@@ -288,12 +288,26 @@ eq() { if [ "$2" = "$3" ]; then pass "$1"; else fail "$1" "got '$2', want '$3'";
 # --- dynamic: /stridify in order ---------------------------------------------------
 
 S="$TMP/s"
-run "$S/Step_2-1.sh" REQUIREMENTS_PATH "$REQ_REL" GOAL_ARG ''
+
+# Step 2.3: the seven-section gate (D314). The chain fixture below has no
+# gated sections, so the gate runs against its own docs here.
+printf '# T\n\n## Problem\np\n## Goal\ng\n## Outcome\no\n## Assumptions\na\n## Constraints\nc\n## Non-Goals\nn\n## Success Metrics\nm\n' > "$REPO/complete-requirements.md"
+run "$S/Step_2-1.sh" REQUIREMENTS_PATH complete-requirements.md
+check "stridify Step 2.3 section gate: a complete (title-case) doc passes" 0
+printf '# T\n\n## Problem\np\n## Goal\ng\n' > "$REPO/partial-requirements.md"
+run "$S/Step_2-1.sh" REQUIREMENTS_PATH partial-requirements.md
+check "stridify Step 2.3 section gate: a partial doc stops (exit 1)" 1
+if printf '%s' "$ERR" | grep -q 'missing required section(s): Outcome, Assumptions, Constraints, Non-goals, Success metrics'; then
+  pass "stridify Step 2.3 section gate: names every missing section"
+else
+  fail "stridify Step 2.3 section gate: message" "$ERR"
+fi
+run "$S/Step_2-2.sh" REQUIREMENTS_PATH "$REQ_REL" GOAL_ARG ''
 check "stridify Step 2 advisory: runs in a fresh shell" 0
 
 # The advisory counts exactly the seams --goal accepts (D313).
 printf '# D\n\n## Decomposition seams\n\n- **A** x\n- **B** x\n- **C** x\n- **D** x\n' > "$REPO/bullets-requirements.md"
-run "$S/Step_2-1.sh" REQUIREMENTS_PATH bullets-requirements.md GOAL_ARG ''
+run "$S/Step_2-2.sh" REQUIREMENTS_PATH bullets-requirements.md GOAL_ARG ''
 check "stridify Step 2 advisory: runs on a bulleted-seams doc" 0
 if printf '%s' "$ERR" | grep -q 'enumerates 4 surfaces'; then
   pass "stridify Step 2 advisory: four bulleted seams trigger it with the resolvable count"
@@ -301,7 +315,7 @@ else
   fail "stridify Step 2 advisory: bulleted seams" "$ERR"
 fi
 printf '# D\n\n## Decomposition seams\n\n1. **A** x\n2. **B** x\n3. **C** x\n\nNotes:\n- **N1** x\n- **N2** x\n- **N3** x\n- **N4** x\n' > "$REPO/mixed-requirements.md"
-run "$S/Step_2-1.sh" REQUIREMENTS_PATH mixed-requirements.md GOAL_ARG ''
+run "$S/Step_2-2.sh" REQUIREMENTS_PATH mixed-requirements.md GOAL_ARG ''
 if [ "$RC" -eq 0 ] && [ -z "$ERR" ]; then
   pass "stridify Step 2 advisory: secondary bullets under three numbered seams stay quiet"
 else

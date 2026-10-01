@@ -13,9 +13,12 @@ Exits 1 on the first violation, printing a single line of the form:
 The named error variants:
 
   (a) parse_error           - input is not valid JSON
-  (b) wrong_root_key        - root has 'tasks' or any key other than 'goals'
+  (b) wrong_root_key        - root has 'tasks' (instead of, or alongside,
+                              'goals') or any key other than 'goals'
   (c) empty_goals           - 'goals' is missing, not an array, or empty
-  (d) goal_missing_field    - a goal entry lacks title, type, or tasks
+  (d) goal_missing_field    - a goal entry lacks title, type, or tasks, or a
+                              task is not an object with a non-empty string
+                              title and a type of 'work' or 'defect'
   (e) bad_dependency_index  - a task's dependencies[] index references an
                               array slot that does not exist OR points to a
                               task at or after the referencing task's own
@@ -45,6 +48,10 @@ them would reject batches the server accepts.
 import json
 import sys
 from typing import Any
+
+
+# A nested task's type. Goals carry type 'goal'; a task never does.
+TASK_TYPES = ("work", "defect")
 
 
 def fail(message: str) -> "None":
@@ -121,6 +128,12 @@ def validate(path: str) -> "None":
                 f"(saw unexpected key(s): {sorted(unexpected)})"
             )
         fail("root object is missing the required 'goals' array")
+    if "tasks" in doc:
+        fail(
+            "root has both 'goals' and 'tasks' — Stride's POST /api/tasks/batch "
+            "takes tasks only nested inside each goal (goals[].tasks); remove "
+            "the root 'tasks' key"
+        )
 
     # (c) empty_goals
     goals = doc["goals"]
@@ -180,6 +193,18 @@ def validate(path: str) -> "None":
                 fail(
                     f"goals[{goal_idx}].tasks[{task_idx}] must be an object, "
                     f"got {type(task).__name__}"
+                )
+            # (d) goal_missing_field — task level
+            task_path = f"goals[{goal_idx}].tasks[{task_idx}]"
+            for required in ("title", "type"):
+                if required not in task:
+                    fail(f"{task_path} is missing required field '{required}'")
+            if not isinstance(task["title"], str) or not task["title"].strip():
+                fail(f"{task_path}.title must be a non-empty string")
+            if task["type"] not in TASK_TYPES:
+                fail(
+                    f"{task_path}.type must be 'work' or 'defect', "
+                    f"got {task['type']!r}"
                 )
             check_length(
                 f"goals[{goal_idx}].tasks[{task_idx}].title",

@@ -141,6 +141,13 @@ assert_fails_with "(b) wrong root key 'batch' — named in error" \
   "$TMP/wrong_root_batch.json" \
   "missing the required 'goals' array"
 
+cat > "$TMP/goals_and_tasks.json" <<'EOF'
+{"goals": [{"title": "G", "type": "goal", "tasks": [{"title": "t", "type": "work"}]}], "tasks": []}
+EOF
+assert_fails_with "(b) root 'tasks' alongside 'goals' fails" \
+  "$TMP/goals_and_tasks.json" \
+  "root has both 'goals' and 'tasks'"
+
 # --- (c) empty_goals -------------------------------------------------------
 
 cat > "$TMP/empty_goals.json" <<'EOF'
@@ -179,6 +186,37 @@ EOF
 assert_fails_with "(d) goal with empty tasks array fails" \
   "$TMP/empty_tasks.json" \
   "goals[0].tasks is empty"
+
+# Task-level (d): every task needs a non-empty string title and a type of
+# work or defect. A second, valid task first proves the path names the right
+# one.
+task_case() {  # task_case <file> <json-for-the-second-task>
+  printf '{"goals": [{"title": "G", "type": "goal", "tasks": [{"title": "ok", "type": "work"}, %s]}]}\n' "$2" > "$1"
+}
+task_case "$TMP/task_no_title.json" '{"type": "work"}'
+assert_fails_with "(d) task missing title — path-named" \
+  "$TMP/task_no_title.json" "goals[0].tasks[1] is missing required field 'title'"
+task_case "$TMP/task_empty_title.json" '{"title": "", "type": "work"}'
+assert_fails_with "(d) task with an empty title fails" \
+  "$TMP/task_empty_title.json" "goals[0].tasks[1].title must be a non-empty string"
+task_case "$TMP/task_ws_title.json" '{"title": "   ", "type": "defect"}'
+assert_fails_with "(d) task with a whitespace-only title fails" \
+  "$TMP/task_ws_title.json" "goals[0].tasks[1].title must be a non-empty string"
+task_case "$TMP/task_num_title.json" '{"title": 7, "type": "work"}'
+assert_fails_with "(d) task with a non-string title fails" \
+  "$TMP/task_num_title.json" "goals[0].tasks[1].title must be a non-empty string"
+task_case "$TMP/task_no_type.json" '{"title": "t"}'
+assert_fails_with "(d) task missing type — path-named" \
+  "$TMP/task_no_type.json" "goals[0].tasks[1] is missing required field 'type'"
+task_case "$TMP/task_goal_type.json" '{"title": "t", "type": "goal"}'
+assert_fails_with "(d) task typed 'goal' fails" \
+  "$TMP/task_goal_type.json" "goals[0].tasks[1].type must be 'work' or 'defect', got 'goal'"
+task_case "$TMP/task_bogus_type.json" '{"title": "t", "type": "bogus"}'
+assert_fails_with "(d) task with an unknown type fails" \
+  "$TMP/task_bogus_type.json" "goals[0].tasks[1].type must be 'work' or 'defect', got 'bogus'"
+task_case "$TMP/task_string.json" '"just a string"'
+assert_fails_with "(d) task that is a string fails" \
+  "$TMP/task_string.json" "goals[0].tasks[1] must be an object, got str"
 
 # --- (e) bad_dependency_index ---------------------------------------------
 
