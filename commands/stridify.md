@@ -1,6 +1,6 @@
 ---
 description: End-to-end pipeline from a stride-ideation requirements doc to created Stride goals. Validates the seven required sections, preflights auth, dispatches the requirements-decomposer subagent, stamps source_spec + source_spec_sha256, writes and commits a timestamped sibling batch JSON, then POSTs to the Stride API and renders the created G/W identifiers.
-allowed-tools: Bash(date:*), Bash(git:*), Bash(. *:*), Bash(bash:*), Bash(shasum:*), Bash(sha256sum:*), Bash(awk:*), Bash(cut:*), Bash(sed:*), Bash(basename:*), Bash(dirname:*), Bash(grep:*), Bash(test:*), Bash(python3:*), Read, Write, Glob, Grep, Agent
+allowed-tools: Bash(date:*), Bash(git:*), Bash(. *:*), Bash(bash:*), Bash(shasum:*), Bash(sha256sum:*), Bash(awk:*), Bash(cut:*), Bash(sed:*), Bash(basename:*), Bash(dirname:*), Bash(grep:*), Bash(test:*), Bash(tr:*), Bash(python3:*), Read, Write, Glob, Grep, Agent
 argument-hint: "<path-to-requirements.md> [--goal <name|index>] [--yes]"
 ---
 
@@ -12,12 +12,21 @@ Read a stride-ideation requirements markdown document, decompose it into a Strid
 
 Follow these steps in order. Do NOT skip steps.
 
+### Running the bash fragments
+
+**Every Bash tool call is a fresh shell.** Variables, sourced functions and the result of an earlier fragment do not survive into the next call, so each fragment below is self-contained: it sources the helper it needs itself and starts from the values you hand it.
+
+- **Plugin paths.** Claude Code fills in the installed plugin's path wherever a fragment runs a bundled script. If a fragment stops with `CLAUDE_PLUGIN_ROOT is not set`, stop the command — never guess a path and never fall back to a repo-relative `lib/`.
+- **Carry values forward as literals.** A fragment's first comment line, `# Carried forward: ...`, names the values it needs from earlier steps. Prepend one single-quoted assignment per name to the same Bash call, e.g. `REQUIREMENTS_PATH='docs/ideation/2026-05-12T103000-add-notifications-requirements.md'`. Write a single quote inside a value as `'\''`, write an empty value as `NAME=''`, and never paste a value unquoted. The fragment checks each one and stops with `... was not carried forward` if you missed one; fix the prefix and re-run that step. Multi-line content never goes into a Bash call: Step 8a has you write the subagent's JSON to a file with the `Write` tool and passes the file's path instead.
+- **Values a fragment produces** are printed as `carry: NAME=value` lines. Carry them into later steps exactly as printed.
+- The pseudo-code blocks (no `bash` tag, e.g. Step 7c) describe tool calls, not shell; they are not run.
+
 ### Step 1: Parse `$ARGUMENTS`
 
 The user invoked you with `$ARGUMENTS`. Parse in this fixed order — `--goal` first, then `--yes` / `--auto-approve`, then the trimmed remainder is `REQUIREMENTS_PATH`:
 
 - If `--goal` appears, set `GOAL_ARG` to the value of the **next** token and remove both tokens — or, if the `--goal=<value>` form is used, set `GOAL_ARG` to the post-`=` portion (split on the FIRST `=` only, so a value containing `=` is preserved verbatim) and remove the single token. Accept both shapes — `--goal <value>` and `--goal=<value>` — matching how `/stride-ideation:ideate` handles `--continue` and `--profile`. Do NOT validate `GOAL_ARG` here; resolution against the doc's `## Decomposition seams` section happens in new Step 2b, after the doc has been read and the seven-section gate has passed.
-- If `--goal` is absent, leave `GOAL_ARG` and `GOAL_SLUG` unset. The command runs in its historical "all goals" mode.
+- If `--goal` is absent, carry `GOAL_ARG=''` forward (and `GOAL_SLUG=''` once Step 2b is skipped). The command runs in its historical "all goals" mode.
 - If `--yes` **or** `--auto-approve` appears as a bare token, set `AUTO_APPROVE=1` and remove that token. This is a **boolean flag — it takes no value**, so there is no `--yes=<value>` form; treat any token equal to `--yes` or `--auto-approve` as the switch and consume it. The flag bypasses the Step 8.5 preview-and-approval gate, preserving the historical fire-and-forget behavior for scripted / non-interactive callers. If neither token appears, leave `AUTO_APPROVE` unset (equivalently `0`); the command runs interactively and Step 8.5 prompts for approval before the POST. The bypass MUST be an explicit user-supplied flag — never infer it; tasks must never be shipped unreviewed by accident.
 - After flag tokens are consumed, trim the remainder and set `REQUIREMENTS_PATH`. If the remainder is empty, print *"Usage: `/stride-ideation:stridify <path-to-requirements.md> [--goal <name|index>] [--yes]`"* and exit non-zero.
 
@@ -48,6 +57,9 @@ Before doing any expensive work, the command must confirm the input is a real, p
    Count each shape independently, then take the **MAX** across the three. The max-of-shapes rule is friendlier than sum-of-shapes when a section mixes a primary numbered list of surfaces with a secondary bulleted list of cross-cutting notes (e.g., "Shared contract" bullets, "Sequencing & dependencies" bullets) — those secondary bullets should not inflate the surface count.
 
    ```bash
+   # Carried forward: REQUIREMENTS_PATH, GOAL_ARG (empty when --goal was absent)
+   : "${REQUIREMENTS_PATH:?stride-ideation: REQUIREMENTS_PATH was not carried forward from Step 1}"
+   : "${GOAL_ARG?stride-ideation: GOAL_ARG was not carried forward from Step 1}"
    if [ -z "${GOAL_ARG:-}" ] && grep -qE '^## Decomposition seams[[:space:]]*$' "$REQUIREMENTS_PATH"; then
      SEAM_COUNT="$(awk '
        /^## Decomposition seams[[:space:]]*$/ { in_section=1; next }
@@ -73,14 +85,18 @@ Before doing any expensive work, the command must confirm the input is a real, p
 
 ### Step 2b: Resolve `--goal` against `## Decomposition seams` (only if `--goal` was set)
 
-This step runs **only when `GOAL_ARG` is set** (i.e., the user invoked with `--goal <value>`). If `GOAL_ARG` is empty, skip the entire step — the command stays in "all goals" mode and `GOAL_SLUG` remains unset.
+This step runs **only when `GOAL_ARG` is set** (i.e., the user invoked with `--goal <value>`). If `GOAL_ARG` is empty, skip the entire step — the command stays in "all goals" mode; carry `GOAL_INDEX=''`, `GOAL_NAME=''` and `GOAL_SLUG=''` forward.
 
-The resolver is `sti_resolve_goal` in `lib/filename.sh`. It takes the requirements doc path and the `GOAL_ARG` string and emits `<index>\t<name>\t<slug>` on success. Source `filename.sh` (it is also sourced by Step 4 — sourcing twice is harmless).
+The resolver is `sti_resolve_goal` in `lib/filename.sh`. It takes the requirements doc path and the `GOAL_ARG` string and emits `<index>\t<name>\t<slug>` on success. The fragment sources `filename.sh` itself.
 
 The fragments in this file split fields with `cut` and `read`, never with awk field references: Claude Code substitutes the command's positional arguments into any dollar-sign-plus-digit sequence in this body before you read it, so such a reference would arrive already rewritten to `--goal`, `2` or `--yes`. `lib/test-command-placeholders.sh` fails if one is reintroduced.
 
 ```bash
-. <plugin-root>/lib/filename.sh
+# Carried forward: REQUIREMENTS_PATH, GOAL_ARG
+: "${REQUIREMENTS_PATH:?stride-ideation: REQUIREMENTS_PATH was not carried forward from Step 1}"
+: "${GOAL_ARG?stride-ideation: GOAL_ARG was not carried forward from Step 1}"
+[ -n "${CLAUDE_PLUGIN_ROOT}" ] || { echo "stride-ideation: CLAUDE_PLUGIN_ROOT is not set — run this from the installed stride-ideation plugin" >&2; exit 1; }
+. "${CLAUDE_PLUGIN_ROOT}/lib/filename.sh" || exit 1
 
 if [ -n "${GOAL_ARG:-}" ]; then
   GOAL_RESOLVED="$(sti_resolve_goal "$REQUIREMENTS_PATH" "$GOAL_ARG")"
@@ -90,6 +106,7 @@ if [ -n "${GOAL_ARG:-}" ]; then
       GOAL_INDEX="$(printf '%s\n' "$GOAL_RESOLVED" | cut -f1)"
       GOAL_NAME="$(printf '%s\n' "$GOAL_RESOLVED" | cut -f2)"
       GOAL_SLUG="$(printf '%s\n' "$GOAL_RESOLVED" | cut -f3)"
+      printf 'carry: GOAL_INDEX=%s\ncarry: GOAL_NAME=%s\ncarry: GOAL_SLUG=%s\n' "$GOAL_INDEX" "$GOAL_NAME" "$GOAL_SLUG"
       ;;
     2)
       echo "stride-ideation: no Decomposition seams section in $REQUIREMENTS_PATH — cannot scope to single goal" >&2
@@ -131,7 +148,8 @@ fi
 Read auth BEFORE the expensive subagent dispatch so a misconfigured `.stride_auth.md` fails fast without first burning a decomposer pass and writing a batch JSON that can't be shipped. Run the ship script's preflight mode:
 
 ```bash
-bash "<plugin-root>/lib/ship.sh" --check-auth || exit 1
+[ -n "${CLAUDE_PLUGIN_ROOT}" ] || { echo "stride-ideation: CLAUDE_PLUGIN_ROOT is not set — run this from the installed stride-ideation plugin" >&2; exit 1; }
+bash "${CLAUDE_PLUGIN_ROOT}/lib/ship.sh" --check-auth || exit 1
 ```
 
 `--check-auth` locates `.stride_auth.md` (`$STRIDE_AUTH_FILE` if set, else `$CLAUDE_PROJECT_DIR/.stride_auth.md`, falling back to `$PWD` — the same file the Stride orchestrator reads), reads it through `lib/read_auth.py`, prints one `stride-ideation: auth file OK` line naming the file and the API URL, and POSTs nothing. It checks that the file parses, not that the server accepts the token — a revoked token surfaces as a 401 in Step 9. On failure it exits non-zero after `lib/read_auth.py`'s own stderr, which is engineered to never contain the token value — surface that verbatim and stop.
@@ -144,13 +162,17 @@ bash "<plugin-root>/lib/ship.sh" --check-auth || exit 1
 
 ### Step 4: Inherit the session timestamp and slug
 
-Source `lib/filename.sh` and extract the inherited values from `REQUIREMENTS_PATH`:
+The fragment sources `lib/filename.sh` and extracts the inherited values from `REQUIREMENTS_PATH`:
 
 ```bash
-. <plugin-root>/lib/filename.sh
+# Carried forward: REQUIREMENTS_PATH
+: "${REQUIREMENTS_PATH:?stride-ideation: REQUIREMENTS_PATH was not carried forward from Step 1}"
+[ -n "${CLAUDE_PLUGIN_ROOT}" ] || { echo "stride-ideation: CLAUDE_PLUGIN_ROOT is not set — run this from the installed stride-ideation plugin" >&2; exit 1; }
+. "${CLAUDE_PLUGIN_ROOT}/lib/filename.sh" || exit 1
 
 SOURCE_TS="$(basename "$REQUIREMENTS_PATH" | sed -E 's/^([0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{6})-.*$/\1/')"
-SLUG="$(sti_slug_from_path "$REQUIREMENTS_PATH" requirements)"
+SLUG="$(sti_slug_from_path "$REQUIREMENTS_PATH" requirements)" || exit 1
+printf 'carry: SOURCE_TS=%s\ncarry: SLUG=%s\n' "$SOURCE_TS" "$SLUG"
 ```
 
 `SOURCE_TS` is **inherited** from the source path so the decomposition JSON pairs cleanly with its requirements doc by filename prefix. Do NOT generate a fresh timestamp — the design spec explicitly couples the two artifacts by shared prefix.
@@ -162,11 +184,20 @@ If `sti_slug_from_path` exits non-zero (the path does not match the `YYYY-MM-DDT
 Use `sti_unique_path` to compute the sibling output path. When `--goal` was set, append the goal slug to the doc slug so per-goal batches sit next to each other without collision:
 
 ```bash
+# Carried forward: REQUIREMENTS_PATH, SOURCE_TS and SLUG (Step 4), GOAL_SLUG (Step 2b; empty without --goal)
+: "${REQUIREMENTS_PATH:?stride-ideation: REQUIREMENTS_PATH was not carried forward from Step 1}"
+: "${SOURCE_TS:?stride-ideation: SOURCE_TS was not carried forward from Step 4}"
+: "${SLUG:?stride-ideation: SLUG was not carried forward from Step 4}"
+: "${GOAL_SLUG?stride-ideation: GOAL_SLUG was not carried forward from Step 2b}"
+[ -n "${CLAUDE_PLUGIN_ROOT}" ] || { echo "stride-ideation: CLAUDE_PLUGIN_ROOT is not set — run this from the installed stride-ideation plugin" >&2; exit 1; }
+. "${CLAUDE_PLUGIN_ROOT}/lib/filename.sh" || exit 1
+
 SLUG_FOR_PATH="$SLUG"
 if [ -n "${GOAL_SLUG:-}" ]; then
   SLUG_FOR_PATH="${SLUG}-${GOAL_SLUG}"
 fi
-TARGET_PATH="$(sti_unique_path "$(dirname "$REQUIREMENTS_PATH")" "$SOURCE_TS" "$SLUG_FOR_PATH" stride-batch json)"
+TARGET_PATH="$(sti_unique_path "$(dirname "$REQUIREMENTS_PATH")" "$SOURCE_TS" "$SLUG_FOR_PATH" stride-batch json)" || exit 1
+printf 'carry: SLUG_FOR_PATH=%s\ncarry: TARGET_PATH=%s\n' "$SLUG_FOR_PATH" "$TARGET_PATH"
 ```
 
 `stride-batch` is the artifact name (not `requirements`), so the helper produces a sibling file like `2026-05-12T103000-add-notifications-stride-batch.json` next to the requirements doc. When `--goal` is set, the goal slug is appended between the doc slug and the `-stride-batch` token, producing e.g. `2026-05-15T210800-review-queue-code-diffs-kanban-app-stride-batch.json`.
@@ -180,7 +211,10 @@ Do NOT create or touch `TARGET_PATH` yet. A pre-created empty file would leave a
 Compute the SHA-256 of the requirements doc and capture it for the orchestrator-injected fields:
 
 ```bash
+# Carried forward: REQUIREMENTS_PATH
+: "${REQUIREMENTS_PATH:?stride-ideation: REQUIREMENTS_PATH was not carried forward from Step 1}"
 SOURCE_SHA="$(shasum -a 256 "$REQUIREMENTS_PATH" | cut -d' ' -f1 | tr 'A-Z' 'a-z')"
+printf 'carry: SOURCE_SHA=%s\n' "$SOURCE_SHA"
 ```
 
 If `shasum` is unavailable on the host (rare on macOS / Linux), fall back to `sha256sum "$REQUIREMENTS_PATH" | cut -d' ' -f1 | tr 'A-Z' 'a-z'`. The resulting hex string MUST be **lowercase** so the on-disk audit field is a stable, canonical value.
@@ -188,6 +222,9 @@ If `shasum` is unavailable on the host (rare on macOS / Linux), fall back to `sh
 **Normalize `REQUIREMENTS_PATH` to a stable form** so the stamped `source_spec` value is consistent across invocations from different working directories. Two acceptable forms:
 
 ```bash
+# Carried forward: REQUIREMENTS_PATH
+: "${REQUIREMENTS_PATH:?stride-ideation: REQUIREMENTS_PATH was not carried forward from Step 1}"
+
 # Preferred: relative to the git repo root.
 REPO_ROOT="$(git rev-parse --show-toplevel)"
 SOURCE_SPEC="$(python3 -c "import os,sys; print(os.path.relpath(sys.argv[1], sys.argv[2]))" "$REQUIREMENTS_PATH" "$REPO_ROOT")"
@@ -196,6 +233,7 @@ SOURCE_SPEC="$(python3 -c "import os,sys; print(os.path.relpath(sys.argv[1], sys
 if [ -z "$SOURCE_SPEC" ] || [ "$SOURCE_SPEC" = ".." ] || [[ "$SOURCE_SPEC" == ../* ]]; then
   SOURCE_SPEC="$(cd "$(dirname "$REQUIREMENTS_PATH")" && pwd)/$(basename "$REQUIREMENTS_PATH")"
 fi
+printf 'carry: SOURCE_SPEC=%s\n' "$SOURCE_SPEC"
 ```
 
 Do NOT use the raw `$REQUIREMENTS_PATH` as `SOURCE_SPEC` — it depends on the user's current working directory at invocation time and would make the on-disk audit field brittle for tools that read the JSON later.
@@ -289,8 +327,17 @@ When `GOAL_SLUG` is set, build a scoped prompt in two layers:
 1. **Doc surgery.** Use `sti_scope_doc_to_seam` from `lib/filename.sh` to produce a copy of the doc with its `## Decomposition seams` section pruned to keep only the matched seam item. Everything OUTSIDE the seams section (the seven gated sections — Problem, Goal, Outcome, Assumptions, Constraints, Non-goals, Success metrics — plus any Sketch or Open questions content) is preserved verbatim, so the subagent retains the full shared context. Inside the section, intro and trailing prose are dropped and replaced with a one-line notice — only the matched numbered item's lines (start line + any continuation lines until the next item or the section's end) remain.
 
    ```bash
-   SCOPED_DOC="$(sti_scope_doc_to_seam "$REQUIREMENTS_PATH" "$GOAL_INDEX")"
+   # Carried forward: REQUIREMENTS_PATH, GOAL_INDEX (Step 2b)
+   : "${REQUIREMENTS_PATH:?stride-ideation: REQUIREMENTS_PATH was not carried forward from Step 1}"
+   : "${GOAL_INDEX:?stride-ideation: GOAL_INDEX was not carried forward from Step 2b}"
+   [ -n "${CLAUDE_PLUGIN_ROOT}" ] || { echo "stride-ideation: CLAUDE_PLUGIN_ROOT is not set — run this from the installed stride-ideation plugin" >&2; exit 1; }
+   . "${CLAUDE_PLUGIN_ROOT}/lib/filename.sh" || exit 1
+
+   SCOPED_DOC="$(sti_scope_doc_to_seam "$REQUIREMENTS_PATH" "$GOAL_INDEX")" || exit 1
+   printf '%s\n' "$SCOPED_DOC"
    ```
+
+   The printed output is the scoped document; use it as `SCOPED_DOC` below.
 
 2. **Prompt directive.** Prepend a one-line directive above the `Requirements document:` fence telling the subagent the target surface verbatim, so a contract regression in the subagent (it ignores the scoped section and emits all seams it can infer) is at least called out explicitly:
 
@@ -306,10 +353,18 @@ Reached **only** when the Step 7c retry loop hits `MAX_ATTEMPTS` with three cons
 
 **Hard rule: the Stride API POST is NOT attempted in this branch.** Step 8 (validate / stamp / write batch JSON) is also skipped — there is no batch JSON to write, only the prompt that would have produced one. Exit non-zero before Step 8.
 
-**(7.5a) Compute the saved-prompt sibling path.** Use `sti_unique_path` with artifact `decomposer-prompt` and extension `md`. Reuse the same `SLUG_FOR_PATH` computation from Step 5 so per-goal exhaustions land with the goal slug in the filename (e.g., `2026-05-15T210800-review-queue-code-diffs-kanban-app-decomposer-prompt.md`). The collision discriminator is identical to Step 5 — reruns that also exhaust produce `-2`, `-3`, … siblings; existing files are never overwritten.
+**(7.5a) Compute the saved-prompt sibling path.** Use `sti_unique_path` with artifact `decomposer-prompt` and extension `md`. Carry `SLUG_FOR_PATH` forward from Step 5 so per-goal exhaustions land with the goal slug in the filename (e.g., `2026-05-15T210800-review-queue-code-diffs-kanban-app-decomposer-prompt.md`). The collision discriminator is identical to Step 5 — reruns that also exhaust produce `-2`, `-3`, … siblings; existing files are never overwritten.
 
 ```bash
-PROMPT_PATH="$(sti_unique_path "$(dirname "$REQUIREMENTS_PATH")" "$SOURCE_TS" "$SLUG_FOR_PATH" decomposer-prompt md)"
+# Carried forward: REQUIREMENTS_PATH, SOURCE_TS (Step 4), SLUG_FOR_PATH (Step 5)
+: "${REQUIREMENTS_PATH:?stride-ideation: REQUIREMENTS_PATH was not carried forward from Step 1}"
+: "${SOURCE_TS:?stride-ideation: SOURCE_TS was not carried forward from Step 4}"
+: "${SLUG_FOR_PATH:?stride-ideation: SLUG_FOR_PATH was not carried forward from Step 5}"
+[ -n "${CLAUDE_PLUGIN_ROOT}" ] || { echo "stride-ideation: CLAUDE_PLUGIN_ROOT is not set — run this from the installed stride-ideation plugin" >&2; exit 1; }
+. "${CLAUDE_PLUGIN_ROOT}/lib/filename.sh" || exit 1
+
+PROMPT_PATH="$(sti_unique_path "$(dirname "$REQUIREMENTS_PATH")" "$SOURCE_TS" "$SLUG_FOR_PATH" decomposer-prompt md)" || exit 1
+printf 'carry: PROMPT_PATH=%s\n' "$PROMPT_PATH"
 ```
 
 **(7.5b) Compose the file body.** Write a markdown document with these sections, in this order. The structure is fixed so a downstream reader (human, future tool) can parse it:
@@ -340,17 +395,21 @@ resulting fenced ```json block as `<BATCH_TARGET_PATH>` (the target path
 computed by Step 5; for the run that produced this file, that path was
 `<TARGET_PATH>`). Then run:
 
-    python3 <plugin-root>/lib/validate_batch.py <BATCH_TARGET_PATH>
+    python3 "${CLAUDE_PLUGIN_ROOT}/lib/validate_batch.py" "<BATCH_TARGET_PATH>"
 
 to confirm the JSON parses against the validator's five named checks
 (parse_error / wrong_root_key / empty_goals / goal_missing_field /
 bad_dependency_index). On success, ship it exactly as Step 9 of
 `commands/stridify.md` does:
 
-    bash <plugin-root>/lib/ship.sh <BATCH_TARGET_PATH>
+    bash "${CLAUDE_PLUGIN_ROOT}/lib/ship.sh" "<BATCH_TARGET_PATH>"
 
 which reads `.stride_auth.md`, strips the audit fields, POSTs the batch and
 renders the created identifiers in one process.
+
+The plugin path in those two commands is where the stride-ideation plugin
+was installed when this file was saved. If the plugin has been updated since,
+that directory may be gone: substitute the current install location.
 
 This sibling file contains NO authentication material. The Stride API token
 never enters the decomposer prompt (the subagent has no API access), so there
@@ -369,8 +428,8 @@ Last error from the final attempt:
 
 To recover: paste the prompt block from that file into a fresh Claude
 session; save the JSON response as <TARGET_PATH>; then run
-`python3 lib/validate_batch.py <TARGET_PATH>` and
-`bash lib/ship.sh <TARGET_PATH>` (Step 9 of commands/stridify.md).
+`python3 "${CLAUDE_PLUGIN_ROOT}/lib/validate_batch.py" "<TARGET_PATH>"` and
+`bash "${CLAUDE_PLUGIN_ROOT}/lib/ship.sh" "<TARGET_PATH>"` (Step 9 of commands/stridify.md).
 
 The Stride API POST was NOT attempted.
 ```
@@ -388,18 +447,12 @@ Then `exit 1`. **No Stride API POST runs in this branch.**
 
 Four sub-steps that together produce the on-disk audit artifact.
 
-**(8a) Validate the subagent output.** Write the extracted JSON to a temporary file and run the structural validator at `lib/validate_batch.py`. The validator owns the canonical implementation of every check; the command body delegates and surfaces the validator's stderr verbatim on failure:
+**(8a) Validate the subagent output.** First use the `Write` tool to write the JSON extracted in Step 7d, verbatim, to `.stride/stridify-subagent-output.json` (the gitignored `.stride/` scratch directory `/ideate` also uses; the file is overwritten on every run and never committed). The subagent's output is untrusted, so it never goes into a Bash call itself. Then run the structural validator on that file at `lib/validate_batch.py`. The validator owns the canonical implementation of every check; the command body delegates and surfaces the validator's stderr verbatim on failure:
 
 ```bash
-TMP_JSON="$(mktemp -t stride_stridify_validate.XXXXXX.json)"
-printf '%s' "$RAW_SUBAGENT_JSON" > "$TMP_JSON"
-
-if ! python3 "<plugin-root>/lib/validate_batch.py" "$TMP_JSON" 2>"$TMP_JSON.err"; then
-  cat "$TMP_JSON.err" >&2
-  rm -f "$TMP_JSON" "$TMP_JSON.err"
-  exit 1
-fi
-rm -f "$TMP_JSON.err"
+# Carried forward: none (the JSON is in the scratch file written just before this call)
+[ -n "${CLAUDE_PLUGIN_ROOT}" ] || { echo "stride-ideation: CLAUDE_PLUGIN_ROOT is not set — run this from the installed stride-ideation plugin" >&2; exit 1; }
+python3 "${CLAUDE_PLUGIN_ROOT}/lib/validate_batch.py" .stride/stridify-subagent-output.json || exit 1
 ```
 
 The validator enforces six named checks, in order, followed by an advisory (non-blocking) scored-field completeness pass:
@@ -450,13 +503,31 @@ Use the **normalized** `SOURCE_SPEC` from Step 6 (relative to repo root, or abso
 
 These are the ONLY mutations made to the subagent's output — every other field (per-goal title, tasks, pitfalls, etc.) is preserved verbatim. Note the disk-vs-wire asymmetry between the two stamps: the three root audit fields are stripped from the API payload in Step 9 and live on disk only (the audit trail pairing this batch JSON with its source requirements doc), while `created_by_agent` is **never stripped** — it is a create-payload field the server persists for attribution, not a local audit field, so the committed artifact and the POST body both carry it identically. There is no drift between disk and wire for this field.
 
-**(8c) Verify path uniqueness and write the file.** Re-run `sti_unique_path` with the same arguments as Step 5 to confirm `TARGET_PATH` is still untaken. If a colliding file appeared between Step 5 and now (concurrent process, manual filesystem action), use the freshly resolved path — never overwrite an existing file.
+**(8c) Verify path uniqueness and write the file.** Re-run the path computation with the same inputs as Step 5 to confirm `TARGET_PATH` is still untaken:
+
+```bash
+# Carried forward: REQUIREMENTS_PATH, SOURCE_TS (Step 4), SLUG_FOR_PATH (Step 5)
+: "${REQUIREMENTS_PATH:?stride-ideation: REQUIREMENTS_PATH was not carried forward from Step 1}"
+: "${SOURCE_TS:?stride-ideation: SOURCE_TS was not carried forward from Step 4}"
+: "${SLUG_FOR_PATH:?stride-ideation: SLUG_FOR_PATH was not carried forward from Step 5}"
+[ -n "${CLAUDE_PLUGIN_ROOT}" ] || { echo "stride-ideation: CLAUDE_PLUGIN_ROOT is not set — run this from the installed stride-ideation plugin" >&2; exit 1; }
+. "${CLAUDE_PLUGIN_ROOT}/lib/filename.sh" || exit 1
+
+TARGET_PATH="$(sti_unique_path "$(dirname "$REQUIREMENTS_PATH")" "$SOURCE_TS" "$SLUG_FOR_PATH" stride-batch json)" || exit 1
+printf 'carry: TARGET_PATH=%s\n' "$TARGET_PATH"
+```
+
+If a colliding file appeared between Step 5 and now (concurrent process, manual filesystem action), use the freshly resolved path — never overwrite an existing file.
 
 Use the `Write` tool to write the JSON document to the resolved target path. The directory containing `REQUIREMENTS_PATH` already exists (it housed the source doc), so no `mkdir -p` is needed.
 
 **(8d) Commit.**
 
 ```bash
+# Carried forward: TARGET_PATH (Step 8c), SLUG (Step 4), GOAL_SLUG (Step 2b; empty without --goal)
+: "${TARGET_PATH:?stride-ideation: TARGET_PATH was not carried forward from Step 8c}"
+: "${SLUG:?stride-ideation: SLUG was not carried forward from Step 4}"
+: "${GOAL_SLUG?stride-ideation: GOAL_SLUG was not carried forward from Step 2b}"
 git add "$TARGET_PATH"
 if [ -n "${GOAL_SLUG:-}" ]; then
   git commit -m "stride-ideation: decomposition for $SLUG goal $GOAL_SLUG"
@@ -465,8 +536,10 @@ else
 fi
 
 # Alias for the ship-side steps below — keeps the variable name consistent
-# with the historical /ship command body.
+# with the historical /ship command body. Printed so Steps 8.5 and 9 can
+# carry it forward.
 BATCH_PATH="$TARGET_PATH"
+printf 'carry: BATCH_PATH=%s\n' "$BATCH_PATH"
 ```
 
 When `--goal` was set, the commit message gains the goal slug so the audit trail records WHICH surface this batch covers — important when multiple per-goal commits ride on the same source requirements doc (their `source_spec_sha256` values match, but their commit subjects disambiguate).
@@ -482,6 +555,8 @@ The batch JSON is on disk and committed, but nothing has been sent to Stride yet
 **(8.5a) Render the tree from the on-disk batch JSON.** Read `$BATCH_PATH` (never `.stride_auth.md`) and print each goal title, its task count, its task titles, and the cross-goal claim order from `decomposition_notes`. The render reads only the on-disk JSON, which contains no auth material — do NOT enrich it from the auth file or any other secret, and never print the token.
 
 ```bash
+# Carried forward: BATCH_PATH (Step 8d)
+: "${BATCH_PATH:?stride-ideation: BATCH_PATH was not carried forward from Step 8d}"
 python3 - "$BATCH_PATH" <<'PY'
 import json
 import sys
@@ -520,6 +595,8 @@ PY
 On **decline**, stop cleanly:
 
 ```bash
+# Carried forward: BATCH_PATH (Step 8d)
+: "${BATCH_PATH:?stride-ideation: BATCH_PATH was not carried forward from Step 8d}"
 echo "stride-ideation: declined. The batch JSON is on disk at $BATCH_PATH" >&2
 echo "(committed in git) for a later manual ship. No POST was attempted." >&2
 exit 0
@@ -532,7 +609,10 @@ The decline path is a deliberate user choice, not a failure — exit `0`. **Do N
 One invocation does all of it, in one process:
 
 ```bash
-bash "<plugin-root>/lib/ship.sh" "$BATCH_PATH"
+# Carried forward: BATCH_PATH (Step 8d)
+: "${BATCH_PATH:?stride-ideation: BATCH_PATH was not carried forward from Step 8d}"
+[ -n "${CLAUDE_PLUGIN_ROOT}" ] || { echo "stride-ideation: CLAUDE_PLUGIN_ROOT is not set — run this from the installed stride-ideation plugin" >&2; exit 1; }
+bash "${CLAUDE_PLUGIN_ROOT}/lib/ship.sh" "$BATCH_PATH"
 ```
 
 Run it once and relay its output. **Exit 0 means the batch exists in Stride — never re-run it or hand-curl the batch after an exit 0**, even when the success table is missing (see the 9c table). Exit 1 means nothing was created by this call, or Stride rejected it; the user fixes the cause and re-invokes. Exit 2 is a usage error (nothing was sent). Exit 129, 130 or 143 means the script was interrupted (`HUP`, `INT`, `TERM`) — if that happened while the POST was in flight the batch **may already exist**, so do not re-run: tell the user to check the Stride workspace's Backlog column first. The script's stdout and stderr never contain the token — it turns off a caller's `xtrace` and `allexport`, and scrubs the token and any `Bearer <value>` from every body or curl message it prints — so relaying its output verbatim is safe.

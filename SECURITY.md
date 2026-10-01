@@ -22,8 +22,24 @@ Every claim here is backed by the plugin's own files — primarily
   credential extraction). The slash commands' `allowed-tools` frontmatter
   enumerates exactly which Bash invocations are permitted
   ([`commands/stridify.md:3`](commands/stridify.md),
-  [`commands/ideate.md:3`](commands/ideate.md)); `/ideate` is not even allowed to
-  call `curl`.
+  [`commands/ideate.md:3`](commands/ideate.md)); neither command is allowed to
+  call `curl`, and neither grants `rm`, `cat` or `mktemp`. The list names the
+  commands the fragments run at top level (`lib/test-command-fragments.sh`
+  checks that it covers them). Note that a `Bash(<cmd>:*)` entry pre-approves
+  every use of that command, not only the fragment's; the older
+  `Bash(bash:*)`, `Bash(python3:*)` and `Bash(. *:*)` entries are the broad
+  ones.
+- **Which helper scripts run:** the commands reach their `lib/` scripts through
+  Claude Code's plugin-root substitution, which fills in the installed
+  plugin's own path when the command loads. A fragment that finds no
+  substituted path stops with an error rather than guessing — earlier
+  releases left the path for the model to resolve, which could have sourced a
+  same-named `lib/*.sh` from the repository being worked in.
+- **Untrusted text stays out of shell commands:** the decomposer subagent's
+  JSON is written to `.stride/stridify-subagent-output.json` with the `Write`
+  tool and validated from that file (`/stridify` Step 8a); it is never pasted
+  into a Bash call, where a crafted line could end a heredoc early and run
+  as shell. Values carried between steps are pasted as single-quoted literals.
 - **What leaves your machine:** exactly **one** network request — a single
   `POST` of the decomposed batch JSON to **your configured Stride server**
   (`stridelikeaboss.com` by default) when you run `/stridify`. Nothing else is

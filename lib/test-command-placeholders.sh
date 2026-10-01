@@ -171,7 +171,11 @@ EOF
 # --- Step 2b: live fragment, run after substitution -------------------------
 
 STEP2B="$TMP/step2b.sh"
-extract_block "$SIMULATED" '### Step 2b' | sed "s#<plugin-root>#${PLUGIN_ROOT}#g" > "$STEP2B"
+# Claude Code substitutes the plugin-root token textually when it loads the
+# command; simulate that with this checkout's path.
+extract_block "$SIMULATED" '### Step 2b' \
+  | python3 -c 'import sys; sys.stdout.write(sys.stdin.read().replace("${CLAUDE_PLUGIN_ROOT}", sys.argv[1]))' "$PLUGIN_ROOT" \
+  > "$STEP2B"
 assert_eq "Step 2b: fenced bash fragment extracted from stridify.md" \
   "$(grep -c 'sti_resolve_goal' "$STEP2B")" "1"
 
@@ -182,9 +186,9 @@ run_step2b() {
 }
 
 assert_eq "Step 2b: --goal 2 resolves index, name with a space, and slug" \
-  "$(run_step2b 2 2>&1)" "2|stride plugin|stride-plugin"
+  "$(run_step2b 2 2>&1)" "$(printf 'carry: GOAL_INDEX=2\ncarry: GOAL_NAME=stride plugin\ncarry: GOAL_SLUG=stride-plugin\n2|stride plugin|stride-plugin')"
 assert_eq "Step 2b: --goal by name resolves the same tuple" \
-  "$(run_step2b stride-copilot 2>&1)" "3|stride-copilot|stride-copilot"
+  "$(run_step2b stride-copilot 2>&1)" "$(printf 'carry: GOAL_INDEX=3\ncarry: GOAL_NAME=stride-copilot\ncarry: GOAL_SLUG=stride-copilot\n3|stride-copilot|stride-copilot')"
 
 # The previous awk implementation, kept here as the reference the cut-based
 # fragment must match byte for byte.

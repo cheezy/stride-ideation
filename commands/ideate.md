@@ -1,6 +1,6 @@
 ---
 description: Drive an interactive ideation session that turns a fuzzy idea into a committed requirements markdown document. Supports --continue <path> to refine a prior requirements doc, --input <path> to seed draft sections from a freeform brain-dump file (read-only; never committed), and --profile <lean|product|discovery|lean-startup> to select the round structure and reviewer rubric (default lean = v0.3.0 behavior). Hard-gated by the stride-ideation skill on the seven required sections; terminal state is the written doc (does NOT auto-invoke /stridify).
-allowed-tools: Bash(date:*), Bash(git:*), Bash(. *:*), Bash(bash:*), Read, Write, Glob, Grep, Skill, Agent
+allowed-tools: Bash(date:*), Bash(git:*), Bash(mkdir:*), Bash(. *:*), Bash(bash:*), Read, Write, Glob, Grep, Skill, Agent
 argument-hint: "[<topic>] [--continue <path>] [--input <path>] [--profile <lean|product|discovery|lean-startup>]"
 ---
 
@@ -11,6 +11,14 @@ Drive an interactive ideation session that produces a committed `*-requirements.
 ## What to do
 
 Follow these steps in order. Do NOT skip steps.
+
+### Running the bash fragments
+
+**Every Bash tool call is a fresh shell.** Variables, sourced functions and the result of an earlier fragment do not survive into the next call, so each fragment below is self-contained: it sources the helper it needs itself and starts from the values you hand it.
+
+- **Plugin paths.** Claude Code fills in the installed plugin's path wherever a fragment sources a helper. If a fragment stops with `CLAUDE_PLUGIN_ROOT is not set`, stop the session — never guess a path and never fall back to a repo-relative `lib/`.
+- **Carry values forward as literals.** A fragment's first comment line, `# Carried forward: ...`, names the values it needs from earlier steps. Prepend one single-quoted assignment per name to the same Bash call, e.g. `SLUG='dark-mode-toggle'`. Write a single quote inside a value as `'\''` (so `Bob's idea` becomes `TOPIC='Bob'\''s idea'`), write an empty value as `NAME=''`, and never paste a value unquoted. The fragment checks each one and stops with `... was not carried forward` if you missed one; fix the prefix and re-run that step.
+- **Values a fragment produces** are printed as `carry: NAME=value` lines. Carry them into later steps exactly as printed.
 
 ### Step 1: Parse `$ARGUMENTS`
 
@@ -34,36 +42,46 @@ Validate `INPUT_PATH` immediately, mirroring the `CONTINUE_PATH` existence check
 
 ### Step 2: Capture the session timestamp
 
-Run `date -u +%Y-%m-%dT%H%M%S` once and store the result as `SESSION_TS`. This single value MUST be used for every artifact written during this session — do not recompute it later. Capturing the timestamp at invocation time is what makes re-runs sortable and keeps the requirements doc / decomposition output paired by prefix.
+Run `date -u +%Y-%m-%dT%H%M%S` once and carry the result forward as `SESSION_TS`. This single value MUST be used for every artifact written during this session — do not recompute it later. Capturing the timestamp at invocation time is what makes re-runs sortable and keeps the requirements doc / decomposition output paired by prefix.
 
 **Even in `--continue` mode, always generate a fresh `SESSION_TS`.** Do not reuse the timestamp embedded in `CONTINUE_PATH` — that timestamp belongs to the source document, and reusing it would defeat the "never overwrite an existing file" invariant. The refined doc is a sibling, not a replacement.
 
 ### Step 3: Resolve the topic slug
 
-Source `lib/filename.sh` (it ships with the plugin) and resolve the slug depending on mode:
+The fragment sources `lib/filename.sh` (it ships with the plugin) and resolves the slug depending on mode:
 
 ```bash
-. <plugin-root>/lib/filename.sh
+# Carried forward: CONTINUE_PATH (empty in a fresh session), TOPIC (empty in --continue mode)
+: "${CONTINUE_PATH?stride-ideation: CONTINUE_PATH was not carried forward from Step 1}"
+: "${TOPIC?stride-ideation: TOPIC was not carried forward from Step 1}"
+[ -n "${CLAUDE_PLUGIN_ROOT}" ] || { echo "stride-ideation: CLAUDE_PLUGIN_ROOT is not set — run this from the installed stride-ideation plugin" >&2; exit 1; }
+. "${CLAUDE_PLUGIN_ROOT}/lib/filename.sh" || exit 1
 
 if [ -n "$CONTINUE_PATH" ]; then
   # --continue mode: inherit slug from source path; never re-prompt.
-  SLUG="$(sti_slug_from_path "$CONTINUE_PATH" requirements)"
+  SLUG="$(sti_slug_from_path "$CONTINUE_PATH" requirements)" || exit 1
 else
   # Fresh session: slugify the user-supplied topic.
-  SLUG="$(sti_slugify "$TOPIC")"
+  SLUG="$(sti_slugify "$TOPIC")" || exit 1
 fi
+printf 'carry: SLUG=%s\n' "$SLUG"
 ```
 
-Where `<plugin-root>` is the resolved path to the installed `stride-ideation` plugin. If either helper exits non-zero, surface the error verbatim and stop — do NOT silently pick a fallback slug.
+If either helper exits non-zero, surface the error verbatim and stop — do NOT silently pick a fallback slug.
 
-**Confirm `SLUG` with the user only in fresh-session mode.** In `--continue` mode the slug is inherited and locked — re-prompting would violate the "no re-prompt" acceptance criterion and risk accidentally diverging the artifact family. In fresh-session mode, ask the user via `AskUserQuestion` offering the computed value as the first option and "Type a different slug" as a fallback. Either way, the slug is locked for the rest of the session.
+**Confirm `SLUG` with the user only in fresh-session mode.** In `--continue` mode the slug is inherited and locked — re-prompting would violate the "no re-prompt" acceptance criterion and risk accidentally diverging the artifact family. In fresh-session mode, ask the user via `AskUserQuestion` offering the computed value as the first option and "Type a different slug" as a fallback. Either way, the slug is locked for the rest of the session: carry the confirmed `SLUG` (including one the user typed) into every later step.
 
 ### Step 4: Compute the target path (don't write yet)
 
-Call `sti_unique_path docs/ideation "$SESSION_TS" "$SLUG" requirements md`:
-
 ```bash
-TARGET_PATH="$(sti_unique_path docs/ideation "$SESSION_TS" "$SLUG" requirements md)"
+# Carried forward: SESSION_TS (Step 2), SLUG (Step 3)
+: "${SESSION_TS:?stride-ideation: SESSION_TS was not carried forward from Step 2}"
+: "${SLUG:?stride-ideation: SLUG was not carried forward from Step 3}"
+[ -n "${CLAUDE_PLUGIN_ROOT}" ] || { echo "stride-ideation: CLAUDE_PLUGIN_ROOT is not set — run this from the installed stride-ideation plugin" >&2; exit 1; }
+. "${CLAUDE_PLUGIN_ROOT}/lib/filename.sh" || exit 1
+
+TARGET_PATH="$(sti_unique_path docs/ideation "$SESSION_TS" "$SLUG" requirements md)" || exit 1
+printf 'carry: TARGET_PATH=%s\n' "$TARGET_PATH"
 ```
 
 `TARGET_PATH` is the path you WILL write to in Step 8. Do NOT create or touch this file yet. Pre-creating it as empty would leave a half-baked artifact on the filesystem if the user interrupts mid-session, which is the explicit failure mode the spec is guarding against.
@@ -71,6 +89,9 @@ TARGET_PATH="$(sti_unique_path docs/ideation "$SESSION_TS" "$SLUG" requirements 
 **HARD INVARIANT — `--continue` mode:** `TARGET_PATH` MUST NOT equal `CONTINUE_PATH`. `sti_unique_path` builds the new path from a fresh `SESSION_TS`, so the two paths only collide if the user manually crafted a colliding name on disk in the same second — which the collision discriminator handles. Verify the invariant before continuing:
 
 ```bash
+# Carried forward: CONTINUE_PATH (empty in a fresh session), TARGET_PATH
+: "${CONTINUE_PATH?stride-ideation: CONTINUE_PATH was not carried forward from Step 1}"
+: "${TARGET_PATH:?stride-ideation: TARGET_PATH was not carried forward from Step 4}"
 if [ -n "$CONTINUE_PATH" ] && [ "$TARGET_PATH" = "$CONTINUE_PATH" ]; then
   echo "stride-ideation: refusing to overwrite source document at $CONTINUE_PATH" >&2
   exit 1
@@ -105,18 +126,37 @@ The skill receives this content as raw seed material that pre-populates draft se
 
 The requirements doc is not written until the hard gate passes (Step 8), so an interruption mid-session would otherwise lose every answer. To make a session recoverable, `/ideate` autosaves the in-progress draft to a **gitignored** scratch file under `.stride/` (see Step 5), and on start it offers to resume any unfinished draft for the **same slug**.
 
-Source the draft helper and look for an existing draft keyed by `SLUG` (resume keys on the slug, not `SESSION_TS`, because a fresh run has a new timestamp):
+The fragment sources the draft helper and looks for an existing draft keyed by `SLUG` (resume keys on the slug, not `SESSION_TS`, because a fresh run has a new timestamp):
 
 ```bash
-. <plugin-root>/lib/draft.sh
+# Carried forward: SLUG (Step 3)
+: "${SLUG:?stride-ideation: SLUG was not carried forward from Step 3}"
+[ -n "${CLAUDE_PLUGIN_ROOT}" ] || { echo "stride-ideation: CLAUDE_PLUGIN_ROOT is not set — run this from the installed stride-ideation plugin" >&2; exit 1; }
+. "${CLAUDE_PLUGIN_ROOT}/lib/draft.sh" || exit 1
 
 EXISTING_DRAFT="$(sti_draft_find .stride "$SLUG" 2>/dev/null || true)"
+printf 'carry: EXISTING_DRAFT=%s\n' "$EXISTING_DRAFT"
 ```
 
 `sti_draft_find` returns the latest **non-empty** scratch draft matching `<ts>-$SLUG-draft.md` under `.stride/`, or nothing when none exists (an empty or absent scratch yields no offer — a partial/corrupt draft safely falls back to a fresh session). Resolve `DRAFT_PATH` for this session:
 
-- **If `EXISTING_DRAFT` is non-empty**, ask the user via `AskUserQuestion` whether to **resume** that draft or **start fresh** (offer "Resume" as the first option). On resume, set `DRAFT_PATH="$EXISTING_DRAFT"` so the session continues autosaving to — and the skill loads from — that same file. On start-fresh, run `sti_draft_clear "$EXISTING_DRAFT"` to discard the abandoned draft, then set `DRAFT_PATH="$(sti_draft_path .stride "$SESSION_TS" "$SLUG")"`.
-- **If `EXISTING_DRAFT` is empty** (none found), set `DRAFT_PATH="$(sti_draft_path .stride "$SESSION_TS" "$SLUG")"` — a fresh per-session scratch path.
+- **If `EXISTING_DRAFT` is non-empty**, ask the user via `AskUserQuestion` whether to **resume** that draft or **start fresh** (offer "Resume" as the first option). On resume, carry `DRAFT_PATH` forward with the value of `EXISTING_DRAFT` so the session continues autosaving to — and the skill loads from — that same file; there is nothing to run. On start-fresh, run the fragment below with `EXISTING_DRAFT` carried forward: it discards the abandoned draft and resolves a fresh path.
+- **If `EXISTING_DRAFT` is empty** (none found), run the fragment below with `EXISTING_DRAFT=''` — it resolves a fresh per-session scratch path.
+
+```bash
+# Carried forward: SESSION_TS (Step 2), SLUG (Step 3), EXISTING_DRAFT (empty when none was found)
+: "${SESSION_TS:?stride-ideation: SESSION_TS was not carried forward from Step 2}"
+: "${SLUG:?stride-ideation: SLUG was not carried forward from Step 3}"
+: "${EXISTING_DRAFT?stride-ideation: EXISTING_DRAFT was not carried forward from Step 4d}"
+[ -n "${CLAUDE_PLUGIN_ROOT}" ] || { echo "stride-ideation: CLAUDE_PLUGIN_ROOT is not set — run this from the installed stride-ideation plugin" >&2; exit 1; }
+. "${CLAUDE_PLUGIN_ROOT}/lib/draft.sh" || exit 1
+
+if [ -n "$EXISTING_DRAFT" ]; then
+  sti_draft_clear "$EXISTING_DRAFT"
+fi
+DRAFT_PATH="$(sti_draft_path .stride "$SESSION_TS" "$SLUG")" || exit 1
+printf 'carry: DRAFT_PATH=%s\n' "$DRAFT_PATH"
+```
 
 Only same-slug drafts are ever offered; a draft for a different in-flight topic is never surfaced here. The `.stride/` scratch directory is gitignored (see the project `.gitignore`) and the scratch file is **never** `git add`-ed or committed, and **never** holds the Stride API token or any other secret — it carries only the in-progress draft prose.
 
@@ -221,15 +261,36 @@ This `MVP / Validation experiment` section is profile-conditional — under `lea
 
 ### Step 7: Verify the target path is still untaken
 
-Re-run `sti_unique_path` with the same arguments as Step 4 and confirm the returned path equals `TARGET_PATH`. If it differs (another process wrote a colliding file during the session), use the new value — never overwrite an existing file. This is the HARD INVARIANT documented in `lib/filename.sh`.
+Re-run the path computation with the same inputs as Step 4 and confirm the printed path equals the carried `TARGET_PATH`:
+
+```bash
+# Carried forward: SESSION_TS (Step 2), SLUG (Step 3)
+: "${SESSION_TS:?stride-ideation: SESSION_TS was not carried forward from Step 2}"
+: "${SLUG:?stride-ideation: SLUG was not carried forward from Step 3}"
+[ -n "${CLAUDE_PLUGIN_ROOT}" ] || { echo "stride-ideation: CLAUDE_PLUGIN_ROOT is not set — run this from the installed stride-ideation plugin" >&2; exit 1; }
+. "${CLAUDE_PLUGIN_ROOT}/lib/filename.sh" || exit 1
+
+TARGET_PATH="$(sti_unique_path docs/ideation "$SESSION_TS" "$SLUG" requirements md)" || exit 1
+printf 'carry: TARGET_PATH=%s\n' "$TARGET_PATH"
+```
+
+If it differs (another process wrote a colliding file during the session), use the new value — never overwrite an existing file. This is the HARD INVARIANT documented in `lib/filename.sh`.
 
 ### Step 8: Write the file
 
-Use the `Write` tool to write `DRAFT_DOC` to the resolved target path. The directory `docs/ideation/` may not exist on a fresh repo; create it via `mkdir -p docs/ideation` before the write if Step 4's path resolution depended on it.
+Use the `Write` tool to write `DRAFT_DOC` to the resolved target path. The directory `docs/ideation/` may not exist on a fresh repo; create it by running `mkdir -p docs/ideation` before the write if Step 4's path resolution depended on it.
 
 ### Step 9: Commit
 
 ```bash
+# Carried forward: TARGET_PATH (Step 7), CONTINUE_PATH (empty in a fresh session), SLUG (Step 3), DRAFT_PATH (Step 4d)
+: "${TARGET_PATH:?stride-ideation: TARGET_PATH was not carried forward from Step 7}"
+: "${CONTINUE_PATH?stride-ideation: CONTINUE_PATH was not carried forward from Step 1}"
+: "${SLUG:?stride-ideation: SLUG was not carried forward from Step 3}"
+: "${DRAFT_PATH:?stride-ideation: DRAFT_PATH was not carried forward from Step 4d}"
+[ -n "${CLAUDE_PLUGIN_ROOT}" ] || { echo "stride-ideation: CLAUDE_PLUGIN_ROOT is not set — run this from the installed stride-ideation plugin" >&2; exit 1; }
+. "${CLAUDE_PLUGIN_ROOT}/lib/draft.sh" || exit 1
+
 git add "$TARGET_PATH"
 if [ -n "$CONTINUE_PATH" ]; then
   git commit -m "stride-ideation: refine requirements for $SLUG"
