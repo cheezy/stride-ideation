@@ -199,6 +199,46 @@ assert_eq "draft_find: latest ISO timestamp wins for a repeated slug" \
   "$(sti_draft_find "$FDIR" multi)" \
   "$FDIR/2026-05-12T140000-multi-draft.md"
 
+# A slug that is the tail of a longer slug never picks up the longer one's
+# draft, even when that draft is newer (D344).
+sti_draft_save "$(sti_draft_path "$FDIR" 2026-05-12T150000 toggle)" "toggle body"
+sti_draft_save "$(sti_draft_path "$FDIR" 2026-05-12T160000 dark-mode-toggle)" "dark body"
+assert_eq "draft_find: toggle ignores a newer dark-mode-toggle draft" \
+  "$(sti_draft_find "$FDIR" toggle)" \
+  "$FDIR/2026-05-12T150000-toggle-draft.md"
+assert_eq "draft_find: multi-word slug dark-mode-toggle finds its own draft" \
+  "$(sti_draft_find "$FDIR" dark-mode-toggle)" \
+  "$FDIR/2026-05-12T160000-dark-mode-toggle-draft.md"
+
+# Only the longer slug present -> no match for its tail.
+sti_draft_save "$(sti_draft_path "$FDIR" 2026-05-12T170000 user-auth)" "user-auth body"
+NOUSERAUTH="$(sti_draft_find "$FDIR" auth 2>/dev/null || true)"
+if [ -z "$NOUSERAUTH" ]; then
+  ok "draft_find: auth does not match a user-auth draft"
+else
+  no "draft_find: auth wrongly matched: $NOUSERAUTH"
+fi
+TAILONLY="$TMP/find-tail-only"
+sti_draft_save "$(sti_draft_path "$TAILONLY" 2026-09-01T100000 dark-mode-toggle)" "x"
+TAIL_OUT="$(sti_draft_find "$TAILONLY" toggle 2>/dev/null)"
+TAIL_RC=$?
+assert_eq "draft_find: only a longer-slug draft -> empty stdout" "$TAIL_OUT" ""
+assert_eq "draft_find: only a longer-slug draft -> non-zero return" "$TAIL_RC" "1"
+
+# A prefix that is not a well-formed session timestamp is ignored.
+printf 'stray\n' > "$FDIR/notatimestamp-alpha-draft.md"
+printf 'stray\n' > "$FDIR/2026-05-12T99999-alpha-draft.md"
+printf 'stray\n' > "$FDIR/2099-12-31T235959x-alpha-draft.md"
+assert_eq "draft_find: malformed timestamp prefixes are ignored" \
+  "$(sti_draft_find "$FDIR" alpha)" \
+  "$FDIR/2026-05-12T100000-alpha-draft.md"
+
+# An empty draft with a valid name is still skipped in favour of an older one.
+: > "$(sti_draft_path "$FDIR" 2026-05-12T180000 toggle)"
+assert_eq "draft_find: a newer empty draft is still skipped" \
+  "$(sti_draft_find "$FDIR" toggle)" \
+  "$FDIR/2026-05-12T150000-toggle-draft.md"
+
 # Absent directory -> non-zero, no crash.
 ABS="$(sti_draft_find "$TMP/no-such-dir" anything 2>/dev/null || true)"
 if [ -z "$ABS" ]; then

@@ -26,8 +26,9 @@
 # Resume keys on the SLUG, not the session timestamp: a fresh /ideate run has
 # a new timestamp, so sti_draft_find globs every <ts>-<slug>-draft.md under the
 # scratch dir and returns the latest match (ISO timestamps sort lexically). A
-# different slug never matches, because the `-<slug>-draft.md` suffix is
-# dash-delimited.
+# different slug never matches: everything before `-<slug>-draft.md` must be a
+# bare session timestamp, so `toggle` does not pick up a `dark-mode-toggle`
+# draft and `auth` does not pick up `oauth` or `user-auth`.
 #
 # All non-error output is written to stdout. Errors go to stderr with a
 # non-zero exit code. Source this file, or call functions directly via:
@@ -62,13 +63,23 @@ sti_draft_find() {
   fi
   [ -d "$dir" ] || return 1
   local latest=""
-  local f
-  # The leading dash in the glob keeps slug `auth` from matching `oauth`.
-  # With no match (and nullglob unset), the loop iterates once over the
-  # literal unexpanded pattern; the `[ -e "$f" ]` guard skips it.
+  local f name ts
+  # The glob only narrows the candidates: its `*` would also absorb the
+  # leading words of a longer slug (`<ts>-dark-mode` for slug `toggle`), so
+  # each match is then checked exactly. With no match (and nullglob unset),
+  # the loop iterates once over the literal unexpanded pattern; the
+  # `[ -e "$f" ]` guard skips it.
   for f in "${dir%/}/"*"-${slug}-draft.md"; do
     [ -e "$f" ] || continue
     [ -s "$f" ] || continue
+    # Strip the literal suffix (quoted, so the slug is never a pattern) and
+    # require exactly the YYYY-MM-DDTHHMMSS session timestamp before it.
+    name="${f##*/}"
+    ts="${name%"-${slug}-draft.md"}"
+    case "$ts" in
+      [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9][0-9][0-9][0-9][0-9]) ;;
+      *) continue ;;
+    esac
     # Bash expands globs in collation order, but compare explicitly so the
     # "latest ISO timestamp wins" contract does not depend on locale ordering.
     if [ -z "$latest" ] || [ "$f" \> "$latest" ]; then
