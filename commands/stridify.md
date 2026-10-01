@@ -244,7 +244,7 @@ Read the full content of the requirements doc and dispatch the subagent via the 
 
 ```
 Agent(
-  subagent_type: "requirements-decomposer",
+  subagent_type: "stride-ideation:requirements-decomposer",
   prompt: <<the requirements doc text, fenced inside a "Requirements document:" block — the only input the subagent has access to>>
 )
 ```
@@ -279,7 +279,7 @@ while [ "$ATTEMPT" -le "$MAX_ATTEMPTS" ]; do
   echo "stride-ideation: dispatching requirements-decomposer (attempt $ATTEMPT/$MAX_ATTEMPTS)" >&2
 
   RESULT="$(Agent
-    subagent_type: 'requirements-decomposer',
+    subagent_type: 'stride-ideation:requirements-decomposer',
     prompt: <<$DECOMPOSER_PROMPT>>
   )"
 
@@ -528,11 +528,14 @@ Use the `Write` tool to write the JSON document to the resolved target path. The
 : "${TARGET_PATH:?stride-ideation: TARGET_PATH was not carried forward from Step 8c}"
 : "${SLUG:?stride-ideation: SLUG was not carried forward from Step 4}"
 : "${GOAL_SLUG?stride-ideation: GOAL_SLUG was not carried forward from Step 2b}"
-git add "$TARGET_PATH"
+# The pathspec after -- commits ONLY the batch JSON: anything the user had
+# already staged stays staged and out of this commit. --literal-pathspecs
+# keeps a glob character or ":" magic in the path from matching other files.
+git --literal-pathspecs add -- "$TARGET_PATH"
 if [ -n "${GOAL_SLUG:-}" ]; then
-  git commit -m "stride-ideation: decomposition for $SLUG goal $GOAL_SLUG"
+  git --literal-pathspecs commit -m "stride-ideation: decomposition for $SLUG goal $GOAL_SLUG" -- "$TARGET_PATH"
 else
-  git commit -m "stride-ideation: decomposition for $SLUG"
+  git --literal-pathspecs commit -m "stride-ideation: decomposition for $SLUG" -- "$TARGET_PATH"
 fi
 
 # Alias for the ship-side steps below — keeps the variable name consistent
@@ -544,7 +547,7 @@ printf 'carry: BATCH_PATH=%s\n' "$BATCH_PATH"
 
 When `--goal` was set, the commit message gains the goal slug so the audit trail records WHICH surface this batch covers — important when multiple per-goal commits ride on the same source requirements doc (their `source_spec_sha256` values match, but their commit subjects disambiguate).
 
-Use `git add <path>` (not `git add -A` or `git commit -a`) to avoid sweeping unrelated working-tree changes into this commit. The source requirements doc is NOT in the commit's file list — `/stridify` reads it but never modifies it.
+`git add <path>` alone does not keep unrelated work out of this commit: a plain `git commit` commits everything already staged, including files the user staged before running `/stridify`. So the fragment passes the batch path as a pathspec after `--`, which commits that one file and leaves every other staged change staged and uncommitted; `--literal-pathspecs` makes git match that path literally, so a directory or slug containing `*` or a leading `:` cannot widen the match. Keep the `git add` — a pathspec commit of a still-untracked file fails — and never use `git add -A` or `git commit -a`. The source requirements doc is NOT in the commit's file list — `/stridify` reads it but never modifies it.
 
 > **Drift check omitted.** The historical `/ship` command ran a `source_spec_sha256` drift check at this point to catch the case where the user hand-edited the requirements doc between `/decompose` and `/ship`. In the merged `/stridify` flow the batch JSON was just written by this command in the current invocation, so source drift cannot have occurred. The check is skipped.
 

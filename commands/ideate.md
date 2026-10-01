@@ -187,7 +187,7 @@ The skill enforces:
 - the mandatory Round-5 MVP-design batch under `profile=lean-startup` — skipped under any other profile (see **Round 5: MVP design (lean-startup profile only)** in `skills/stride-ideation/SKILL.md`),
 - the seven hard-gated sections (Goal, Problem, Outcome, Assumptions, Constraints, Non-goals, Success Metrics),
 - the mandatory, profile-independent challenge gate run after the round-4 premortem (and the Round-5 MVP-design batch under `profile=lean-startup`) and before the reviewer pass — its four components (assumption-confidence audit, blind-spot scan, two-alternative generation, and cost/risk/complexity/timeline trade-off analysis) are surfaced to the human as a single multi-select `AskUserQuestion` (≤ 4 questions) with an explicit "Challenge nothing — write as-is" option that feeds the at-most-one refinement round; the confidence ratings fold back into the Assumptions entries in place and the blind spots, two alternatives, and trade-off comparison fold into the optional `## Design challenge` section, and the gate never blocks the write (see **Challenge gate** in `skills/stride-ideation/SKILL.md`),
-- the advisory `requirements-reviewer` subagent pass before the write — its findings are surfaced to the human as a single multi-select decision (each finding one line, severity-tagged, plus an explicit "Address none — write as-is" option) that feeds the at-most-one refinement round; an `approved` verdict with no findings shows no prompt, and the reviewer never blocks the write (see **Reviewer pass** in `skills/stride-ideation/SKILL.md`).
+- the advisory reviewer pass before the write — the skill dispatches it with the `Agent` tool as `subagent_type: "stride-ideation:requirements-reviewer"` (the plugin-namespaced name; the bare `requirements-reviewer` is not a registered agent type) — its findings are surfaced to the human as a single multi-select decision (each finding one line, severity-tagged, plus an explicit "Address none — write as-is" option) that feeds the at-most-one refinement round; an `approved` verdict with no findings shows no prompt, and the reviewer never blocks the write (see **Reviewer pass** in `skills/stride-ideation/SKILL.md`).
 
 When the skill returns, you will have a single string `DRAFT_DOC` containing the fully composed requirements markdown — every gated section present and substantive. If the skill returns without a draft (user aborted, hard gate not satisfied), stop here and exit cleanly — do NOT write anything to disk and do NOT commit.
 
@@ -291,11 +291,14 @@ Use the `Write` tool to write `DRAFT_DOC` to the resolved target path. The direc
 [ -n "${CLAUDE_PLUGIN_ROOT}" ] || { echo "stride-ideation: CLAUDE_PLUGIN_ROOT is not set — run this from the installed stride-ideation plugin" >&2; exit 1; }
 . "${CLAUDE_PLUGIN_ROOT}/lib/draft.sh" || exit 1
 
-git add "$TARGET_PATH"
+# The pathspec after -- commits ONLY the new doc: anything the user had
+# already staged stays staged and out of this commit. --literal-pathspecs
+# keeps a glob character or ":" magic in the path from matching other files.
+git --literal-pathspecs add -- "$TARGET_PATH" || exit 1
 if [ -n "$CONTINUE_PATH" ]; then
-  git commit -m "stride-ideation: refine requirements for $SLUG"
+  git --literal-pathspecs commit -m "stride-ideation: refine requirements for $SLUG" -- "$TARGET_PATH" || exit 1
 else
-  git commit -m "stride-ideation: requirements for $SLUG"
+  git --literal-pathspecs commit -m "stride-ideation: requirements for $SLUG" -- "$TARGET_PATH" || exit 1
 fi
 
 # The session succeeded — the committed doc supersedes the scratch draft.
@@ -306,7 +309,7 @@ sti_draft_clear "$DRAFT_PATH"
 
 Commit message format: `stride-ideation: requirements for <slug>` (fresh) or `stride-ideation: refine requirements for <slug>` (continue). Do not include the session timestamp in the message — the filename already carries it.
 
-If the working tree had unrelated uncommitted changes before the session, the commit MUST include only the new requirements doc. Use `git add <path>` (not `git add -A` or `git commit -a`) to avoid sweeping unrelated work into this commit. In `--continue` mode the source document MUST NOT appear in the commit's file list (it was not modified, so `git status` will already show it clean — but verify nothing accidental crept in).
+If the working tree had unrelated uncommitted changes before the session, the commit MUST include only the new requirements doc. `git add <path>` alone does not guarantee that: a plain `git commit` commits everything already staged, including files the user staged before the session. So the fragment passes the doc's path as a pathspec after `--`, which commits that one file and leaves every other staged change staged and uncommitted; `--literal-pathspecs` makes git match that path literally, so a slug containing `*` or a leading `:` cannot widen the match. Keep the `git add` — a pathspec commit of a still-untracked file fails — and never use `git add -A` or `git commit -a`. In `--continue` mode the source document MUST NOT appear in the commit's file list (it was not modified, so `git status` will already show it clean — but verify nothing accidental crept in).
 
 The `sti_draft_clear "$DRAFT_PATH"` call runs **only after the commit succeeds** — the scratch draft is the recovery artifact, so it survives until the real doc is committed and is then removed so no stale autosave is offered for resume on a future run. The scratch file lives under the gitignored `.stride/` directory and is never part of the commit's file list.
 
