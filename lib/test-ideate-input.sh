@@ -58,11 +58,20 @@ parse_flags() {
     local t="${toks[$i]}"
     case "$t" in
       --continue)
+        # A missing value (end of args, or another --flag next) is an error.
+        if [ "$(( i + 1 ))" -ge "$n" ] || [ "${toks[$(( i + 1 ))]#--}" != "${toks[$(( i + 1 ))]}" ]; then
+          echo "stride-ideation: --continue requires a path to a prior -requirements.md doc" >&2
+          return 1
+        fi
         i=$(( i + 1 ))
-        if [ "$i" -lt "$n" ]; then continue_path="${toks[$i]}"; fi
+        continue_path="${toks[$i]}"
         ;;
       --continue=*)
         continue_path="${t#--continue=}"
+        if [ -z "$continue_path" ]; then
+          echo "stride-ideation: --continue requires a path to a prior -requirements.md doc" >&2
+          return 1
+        fi
         ;;
       --input)
         i=$(( i + 1 ))
@@ -236,6 +245,29 @@ if validate_input_path "$EMPTY_NOTES" 2>/dev/null; then
 else
   fail "case 7: empty --input file was rejected by validation"
 fi
+
+# === case 8: --continue accepts both forms (W2190) ========================
+
+case8_space="$(parse_flags '--continue docs/a=b-requirements.md extra words')"
+case8_eq="$(parse_flags '--continue=docs/a=b-requirements.md extra words')"
+if [ "$case8_space" = "$case8_eq" ] && [ "$(printf '%s\n' "$case8_eq" | sed -n 1p)" = "docs/a=b-requirements.md" ] \
+   && [ "$(printf '%s\n' "$case8_eq" | sed -n 3p)" = "extra words" ]; then
+  pass "case 8: --continue=<path> parses like --continue <path> (first '=' split, path with '=' kept, remainder preserved)"
+else
+  fail "case 8: --continue forms differ" "space=[$case8_space] eq=[$case8_eq]"
+fi
+
+# === case 9: --continue with no value is an error, not a fresh session =====
+
+case9_ok=1
+for args in '--continue=' 'topic --continue' '--continue --input notes.md'; do
+  if parse_flags "$args" > /dev/null 2> "$TMP/c9.err"; then
+    case9_ok=0; fail "case 9: '$args' was accepted"
+  elif ! grep -q -- '--continue requires a path' "$TMP/c9.err"; then
+    case9_ok=0; fail "case 9: '$args' error message" "$(cat "$TMP/c9.err")"
+  fi
+done
+[ "$case9_ok" = 1 ] && pass "case 9: --continue=, a trailing --continue, and --continue before another flag all fail with a clear error"
 
 # === summary ==============================================================
 

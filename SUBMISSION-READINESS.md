@@ -1,5 +1,7 @@
 # Community Directory Submission — Readiness Checklist
 
+> **Dated snapshot — 2026-06-22, plugin v0.8.0.** The figures below (versions, script and assertion counts, line citations) describe the plugin as it was then and have not been refreshed; the plugin has changed since (see `CHANGELOG.md`). Re-run `claude plugin validate` and the `lib/test-*.sh` suites for current figures. Later corrections are marked inline with their date.
+
 Go/no-go package for submitting the **stride-ideation** plugin to the Anthropic
 community plugin directory. Produced by task **W1287**, the final task of the
 submission-readiness goal. **This package stops at ready-to-submit — it does NOT

@@ -22,6 +22,41 @@ Why accepted rather than backfilled:
 
 The audit also found **zero** GitHub releases without a matching tag, so the record is incomplete in only this one direction.
 
+## [Unreleased]
+
+A hardening pass over `/ideate` and `/stridify` from a full plugin review: the token never reaches a command line, every Bash fragment runs correctly in the fresh shell each tool call gets, commits contain only the artifact, autosave actually happens, and the validator and section gate are scripted. Also includes three earlier unreleased fixes (D343, D344, D345). No version is bumped here.
+
+### Added
+
+- **`/stride-ideation:stridify --batch <path>` ships an existing batch JSON without decomposing again** (W2189). Validates the file, warns that re-shipping a batch creates duplicates, shows the Step 8.5 preview and approval gate (honoring `--yes`), and ships through `lib/ship.sh`; no commit, and the file is never rewritten. The decline message and every recovery instruction now point at it instead of a hand-written `curl`.
+- **`lib/ship.sh`** (D310) — the single process `/stridify` uses to read auth, strip the audit fields, POST and render. The token reaches curl on a stdin pipe (`curl -K -`), never on a command line or on disk; the payload goes as `--data-binary @file`; response bodies and curl errors are printed verbatim but with the token and any `Bearer` value scrubbed; a 2xx it cannot render prints a do-not-re-run notice. `--check-auth` is the Step 3 preflight. Since W2189 it also validates the exact payload it sends and refuses one that contains the configured token.
+- **`lib/check_sections.py`** (D314) — the seven-section gate `/stridify` Step 2.3 now runs instead of a model-followed grep: level-2 headings only, case-insensitive (`Success Metrics` and `Success metrics` both pass), fenced headings ignored.
+- **Autosave in the ideation skill** (D312). `SKILL.md` now tells the skill to write the draft to `draft_path` with the `Write` tool after every round and to load it at round 1 when resuming; before this, the documented per-round save never ran.
+- **`--continue=<path>`** (W2190) is accepted alongside `--continue <path>`; a missing value is an error rather than a silent fresh session.
+
+### Changed
+
+- **Every bash fragment in `/ideate` and `/stridify` is self-contained** (W2188). Each Bash tool call is a fresh shell, so each fragment sources its own helper through `${CLAUDE_PLUGIN_ROOT}` (with a guard for an unsubstituted root), declares the values it needs on a `# Carried forward:` line, and prints `carry:` lines for values later steps need. The `<plugin-root>` placeholder is gone.
+- **One definition of a decomposition seam** (D313): numbered bold items, else top-level bulleted bold items, else `### ` headings. The Step 2 advisory, `--goal` resolution and prompt scoping all use it, so an advisory that recommends `--goal` can always be followed.
+- **Documentation drift** (W2190): `lean` is described by what it runs and omits rather than as "byte-for-byte v0.3.0", which stopped being true in 0.8.0; `SKILL.md` is the single home of the question loop; the skill description is trimmed to its triggers; the 2026-06-22 submission documents are labelled as dated snapshots.
+
+### Fixed
+
+- **Commits swept up the user's staged work** (D311). `ideate` Step 9 and `stridify` Step 8d now commit only the artifact (`git --literal-pathspecs commit … -- <path>`).
+- **Agents were dispatched by their bare names** (D311); they now use the registered `stride-ideation:requirements-decomposer` and `stride-ideation:requirements-reviewer`.
+- **`validate_batch.py` accepted malformed tasks** (D314): a task with no title or type, a task typed `goal`, and a root `tasks` key next to `goals` now fail, as do (W2189) unexpected root keys. Step 7.5 no longer says the validator has five checks.
+- **Agent prompt contradictions** (D315): the decomposer both granted and denied codebase access and showed `//` comments inside JSON (which would make `/stridify` fail if copied); the reviewer's example severities contradicted its own rule.
+- **`.stride/` drafts were not ignored in user repositories** (D312): the scratch directory now carries its own `.gitignore`, and draft helpers refuse symlinked, tracked or re-included drafts.
+- **Sourced helpers enabled `set -u` in the caller** (D343), aborting `/ideate` on its next optional variable.
+- **`$N` field references in `stridify.md` were rewritten by positional-argument substitution** (D345); fragments now use `cut`/`read`, and a test lints for the pattern.
+- **Draft resume matched a different topic's draft** (D344): `sti_draft_find` now requires the slug to follow the session timestamp exactly.
+
+### Security
+
+- **The bearer token no longer appears on any command line or in any output** (D310): previously the fragments put it on curl's argv and in an `eval` of unquoted auth output. `read_auth.py` now shell-quotes its output, `Bash(curl:*)` was removed from `/stridify`'s allowed tools, and `ship.sh` turns off a caller's `xtrace`/`allexport`.
+- **Untrusted text stays out of shell commands** (W2188): the decomposer's JSON is written with the `Write` tool and validated from a file instead of being pasted into a heredoc.
+- **The decomposer never reads secret files or puts credentials in a batch** (D315), and the validator warns, by redacted JSON path, about Stride-token or `Bearer`-shaped strings (W2189).
+
 ## [0.11.1] - 2026-08-21
 
 A housekeeping release: no behavior change to `/ideate` or `/stridify`. The `lean` profile's README description stops defining itself by reference to a version number, and the repo now ignores the Stride agent's local credential file.
