@@ -1,6 +1,6 @@
 ---
 description: End-to-end pipeline from a stride-ideation requirements doc to created Stride goals. Validates the seven required sections, preflights auth, dispatches the requirements-decomposer subagent, stamps source_spec + source_spec_sha256, writes and commits a timestamped sibling batch JSON, then POSTs to the Stride API and renders the created G/W identifiers.
-allowed-tools: Bash(date:*), Bash(git:*), Bash(. *:*), Bash(bash:*), Bash(shasum:*), Bash(sha256sum:*), Bash(awk:*), Bash(sed:*), Bash(basename:*), Bash(dirname:*), Bash(grep:*), Bash(test:*), Bash(curl:*), Bash(python3:*), Read, Write, Glob, Grep, Agent
+allowed-tools: Bash(date:*), Bash(git:*), Bash(. *:*), Bash(bash:*), Bash(shasum:*), Bash(sha256sum:*), Bash(awk:*), Bash(cut:*), Bash(sed:*), Bash(basename:*), Bash(dirname:*), Bash(grep:*), Bash(test:*), Bash(curl:*), Bash(python3:*), Read, Write, Glob, Grep, Agent
 argument-hint: "<path-to-requirements.md> [--goal <name|index>] [--yes]"
 ---
 
@@ -75,7 +75,9 @@ Before doing any expensive work, the command must confirm the input is a real, p
 
 This step runs **only when `GOAL_ARG` is set** (i.e., the user invoked with `--goal <value>`). If `GOAL_ARG` is empty, skip the entire step — the command stays in "all goals" mode and `GOAL_SLUG` remains unset.
 
-The resolver is `sti_resolve_goal` in `lib/filename.sh`. It takes the requirements doc path and the `GOAL_ARG` string and emits `<index>\t<name>\t<slug>` on success. Source `filename.sh` (it is also sourced by Step 4 — sourcing twice is harmless):
+The resolver is `sti_resolve_goal` in `lib/filename.sh`. It takes the requirements doc path and the `GOAL_ARG` string and emits `<index>\t<name>\t<slug>` on success. Source `filename.sh` (it is also sourced by Step 4 — sourcing twice is harmless).
+
+The fragments in this file split fields with `cut` and `read`, never with awk field references: Claude Code substitutes the command's positional arguments into any dollar-sign-plus-digit sequence in this body before you read it, so such a reference would arrive already rewritten to `--goal`, `2` or `--yes`. `lib/test-command-placeholders.sh` fails if one is reintroduced.
 
 ```bash
 . <plugin-root>/lib/filename.sh
@@ -85,9 +87,9 @@ if [ -n "${GOAL_ARG:-}" ]; then
   GOAL_RC=$?
   case "$GOAL_RC" in
     0)
-      GOAL_INDEX="$(printf '%s' "$GOAL_RESOLVED" | awk -F'\t' '{print $1}')"
-      GOAL_NAME="$(printf '%s' "$GOAL_RESOLVED" | awk -F'\t' '{print $2}')"
-      GOAL_SLUG="$(printf '%s' "$GOAL_RESOLVED" | awk -F'\t' '{print $3}')"
+      GOAL_INDEX="$(printf '%s\n' "$GOAL_RESOLVED" | cut -f1)"
+      GOAL_NAME="$(printf '%s\n' "$GOAL_RESOLVED" | cut -f2)"
+      GOAL_SLUG="$(printf '%s\n' "$GOAL_RESOLVED" | cut -f3)"
       ;;
     2)
       echo "stride-ideation: no Decomposition seams section in $REQUIREMENTS_PATH — cannot scope to single goal" >&2
@@ -99,7 +101,9 @@ if [ -n "${GOAL_ARG:-}" ]; then
       ;;
     3)
       echo "stride-ideation: --goal value '$GOAL_ARG' did not match any Decomposition seam in $REQUIREMENTS_PATH. Available seams:" >&2
-      sti_extract_seams "$REQUIREMENTS_PATH" | awk -F'\t' '{ printf "  %d. %s (slug: %s)\n", $1, $2, $3 }' >&2
+      sti_extract_seams "$REQUIREMENTS_PATH" | while IFS="$(printf '\t')" read -r SEAM_IDX SEAM_NAME SEAM_SLUG; do
+        printf '  %d. %s (slug: %s)\n' "$SEAM_IDX" "$SEAM_NAME" "$SEAM_SLUG"
+      done >&2
       exit 1
       ;;
     *)
@@ -192,10 +196,10 @@ Do NOT create or touch `TARGET_PATH` yet. A pre-created empty file would leave a
 Compute the SHA-256 of the requirements doc and capture it for the orchestrator-injected fields:
 
 ```bash
-SOURCE_SHA="$(shasum -a 256 "$REQUIREMENTS_PATH" | awk '{print $1}' | tr 'A-Z' 'a-z')"
+SOURCE_SHA="$(shasum -a 256 "$REQUIREMENTS_PATH" | cut -d' ' -f1 | tr 'A-Z' 'a-z')"
 ```
 
-If `shasum` is unavailable on the host (rare on macOS / Linux), fall back to `sha256sum "$REQUIREMENTS_PATH" | awk '{print $1}' | tr 'A-Z' 'a-z'`. The resulting hex string MUST be **lowercase** so the on-disk audit field is a stable, canonical value.
+If `shasum` is unavailable on the host (rare on macOS / Linux), fall back to `sha256sum "$REQUIREMENTS_PATH" | cut -d' ' -f1 | tr 'A-Z' 'a-z'`. The resulting hex string MUST be **lowercase** so the on-disk audit field is a stable, canonical value.
 
 **Normalize `REQUIREMENTS_PATH` to a stable form** so the stamped `source_spec` value is consistent across invocations from different working directories. Two acceptable forms:
 
