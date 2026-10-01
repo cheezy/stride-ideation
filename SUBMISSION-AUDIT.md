@@ -61,6 +61,12 @@ and single network POST:
   argument). `-v` is explicitly prohibited; curl stderr is captured to a temp
   file. No other helper makes outbound calls (except `run_smoke_test.sh`, only
   in opt-in `--live` mode).
+
+  > **Correction (D310, 2026-10-01):** a `-H "Authorization: Bearer …"` value
+  > *is* on curl's command line and visible to `ps`. Auth, strip, POST and
+  > render now run in one process, `lib/ship.sh`, which hands the header to
+  > curl as a config on its stdin (`curl -K -`), never on argv or disk. See
+  > `SECURITY.md`.
 - **Disk writes:** the committed requirements doc (read-only to `/stridify`),
   the batch JSON `<ts>-<slug>-stride-batch.json` (written via the Write tool and
   committed by explicit path, not `git add -A`), an optional
@@ -92,7 +98,7 @@ required.**
 | Check | Method | Result |
 |-------|--------|--------|
 | No secret files tracked | `git ls-files \| grep -Ei 'auth\|secret\|token\|\.env\|\.pem\|\.key'` | ✅ only `lib/read_auth.py` matches — the auth-*reader* script, not a secret file (no token content). No `.stride_auth.md`, `.env`, `.pem`, or `.key` tracked. |
-| No hardcoded credentials | `git ls-files \| xargs grep -nEi 'stride_(dev\|prod)_…\|Bearer …'` over skills/commands/agents/lib/fixtures | ✅ no real token literals. Every `Bearer` usage references the `$STRIDE_API_TOKEN` **variable** (`commands/stridify.md`, `lib/run_smoke_test.sh`); `lib/read_auth.py:69` shows a `stride_xxx...` **placeholder** in a help string. |
+| No hardcoded credentials | `git ls-files \| xargs grep -nEi 'stride_(dev\|prod)_…\|Bearer …'` over skills/commands/agents/lib/fixtures | ✅ no real token literals. Every `Bearer` usage references the `$STRIDE_API_TOKEN` **variable** (`commands/stridify.md`, `lib/run_smoke_test.sh`); `lib/read_auth.py:69` shows a `stride_xxx...` **placeholder** in a help string. *(Since D310 neither file builds a `Bearer` header from `$STRIDE_API_TOKEN`: `lib/ship.sh` pipes it to `curl -K -`.)* |
 | Fixtures clean | `grep -rnEi 'stride_(dev\|prod)_\|Bearer …' fixtures/` | ✅ the three example requirements docs + batch JSONs and the fixtures README carry no token literals or auth material. |
 | No real token in history | `git log --all -S 'stride_dev_'` / `-S 'stride_prod_'` | ✅ the only `stride_dev_` strings ever committed are obvious synthetic test placeholders in lib test scripts (`stride_dev_TEST_TOKEN_FOR_SMOKE_TEST_ONLY`, `stride_dev_LOCAL_should_not_match`, `stride_dev_REAL_TOKEN_xyz123`, `stride_dev_SUPER_SECRET_TOKEN_xyz_DO_NOT_LEAK`). No real credential ever entered history. |
 | lib test scripts pass clean | `for t in lib/test-*.sh; do bash "$t"; done` | ✅ all 11 test scripts then present passed at audit time (2026-06-22). Re-verified 2026-07-02: the suite has since grown to 12 scripts — all 12 pass, 168 assertions, 0 failures. |
@@ -115,7 +121,8 @@ only** — never hardcoded:
 4. **No persistence / no echo:** the token is never written to disk, logged, or
    persisted. In `/stridify` it is passed only as a `curl -H "Authorization:
    Bearer $STRIDE_API_TOKEN"` header (never as a `ps`-visible positional
-   argument; `-v` is prohibited).
+   argument; `-v` is prohibited). *Superseded by D310: that header was
+   `ps`-visible; `lib/ship.sh` now pipes it to `curl -K -` on stdin.*
 
 Unlike the `stride` plugin, `stride-ideation` ships **no `hooks.json`** — there
 is no client-side hook-execution surface and `read_auth.py` is the sole

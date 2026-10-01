@@ -250,49 +250,13 @@ fi
 if [ "$MODE" = "live" ]; then
   printf '\nStage 7: LIVE POST to the Stride API (NOTE: creates real tasks)\n'
 
-  AUTH_FILE="${CLAUDE_PROJECT_DIR:-$PWD}/.stride_auth.md"
-  if [ ! -f "$AUTH_FILE" ]; then
-    nope "--live requires .stride_auth.md at $AUTH_FILE" ""
+  # Ship through lib/ship.sh — the same single process /stridify Step 9 runs —
+  # so the token stays off argv here too. Its stderr and stdout (verbatim
+  # body on failure, identifier table on success) pass straight through.
+  if bash "${SCRIPT_DIR}/ship.sh" "$BATCH_PATH"; then
+    ok "live: lib/ship.sh shipped the batch"
   else
-    if AUTH_OUT_LIVE="$(python3 "${SCRIPT_DIR}/read_auth.py" "$AUTH_FILE" 2>/tmp/sm-live-auth.err)"; then
-      eval "$AUTH_OUT_LIVE"
-      unset AUTH_OUT_LIVE
-      LIVE_PAYLOAD="$(python3 "${SCRIPT_DIR}/strip_audit_fields.py" "$BATCH_PATH")"
-
-      LIVE_RESP="$(mktemp -t sm_live_resp.XXXXXX.json)"
-      LIVE_CODE="$(curl -sS -X POST \
-        -H "Authorization: Bearer $STRIDE_API_TOKEN" \
-        -H "Content-Type: application/json" \
-        -d "$LIVE_PAYLOAD" \
-        "$STRIDE_API_URL/api/tasks/batch" \
-        -o "$LIVE_RESP" \
-        -w '%{http_code}')"
-      unset STRIDE_API_TOKEN
-
-      case "$LIVE_CODE" in
-        2*)
-          ok "live POST returned HTTP $LIVE_CODE"
-          printf '\nCreated identifiers:\n'
-          python3 - "$LIVE_RESP" <<'PY'
-import json, sys
-with open(sys.argv[1]) as fp:
-    data = json.load(fp)
-container = data.get("data", data)
-for goal in container.get("goals", []):
-    print(f"  {goal.get('identifier', '?'):>6}  {goal.get('title', '')}")
-    for task in goal.get("tasks", []) or []:
-        print(f"  {task.get('identifier', '?'):>6}    {task.get('title', '')}")
-PY
-          ;;
-        *)
-          nope "live POST returned HTTP $LIVE_CODE" "$(cat "$LIVE_RESP")"
-          ;;
-      esac
-      rm -f "$LIVE_RESP"
-    else
-      nope "live: read_auth.py failed" "$(cat /tmp/sm-live-auth.err)"
-    fi
-    rm -f /tmp/sm-live-auth.err
+    nope "live: lib/ship.sh exited non-zero (its stderr is above)" ""
   fi
 fi
 

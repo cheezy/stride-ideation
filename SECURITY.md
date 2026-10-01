@@ -47,10 +47,10 @@ executable code):
 | Subagents | 2 | [`agents/requirements-decomposer.md`](agents/requirements-decomposer.md), [`agents/requirements-reviewer.md`](agents/requirements-reviewer.md) |
 
 Plus `lib/` helper scripts — the only executable surface the plugin ships:
-`read_auth.py`, `validate_batch.py`, `drift_check.py`, `strip_audit_fields.py`,
-`filename.sh`, `draft.sh`, and `run_smoke_test.sh` (the smoke-test harness, used
-for development; its only network call is gated behind an explicit `--live`
-flag). There is **no `hooks.json` and no `hooks/` directory** — the plugin
+`read_auth.py`, `ship.sh`, `validate_batch.py`, `drift_check.py`,
+`strip_audit_fields.py`, `filename.sh`, `draft.sh`, and `run_smoke_test.sh` (the
+smoke-test harness, used for development; its only network call is gated behind
+an explicit `--live` flag and goes through `ship.sh`). There is **no `hooks.json` and no `hooks/` directory** — the plugin
 registers no lifecycle hooks and executes none of your `.stride.md` sections.
 
 ## What runs at runtime
@@ -69,14 +69,16 @@ event-triggered hook, no daemon, and no background task.
 The `lib/` helpers are plain utilities invoked by these commands: regex
 credential extraction (`read_auth.py`), JSON shape validation
 (`validate_batch.py`), SHA drift checks (`drift_check.py`), audit-field stripping
-(`strip_audit_fields.py`), and pure slug/path/draft bash functions
-(`filename.sh`, `draft.sh`). None except the `--live` smoke test makes any
-outbound call.
+(`strip_audit_fields.py`), pure slug/path/draft bash functions
+(`filename.sh`, `draft.sh`), and `ship.sh`, the single process that reads auth,
+strips, POSTs and renders. `ship.sh` is the only helper that makes an outbound
+call (the `--live` smoke test reaches the network only by calling it).
 
 ## What data leaves the machine, and where
 
 The plugin makes **exactly one** kind of outbound request — the `/stridify`
-batch upload ([`commands/stridify.md:546-555`](commands/stridify.md)):
+batch upload, made by [`lib/ship.sh`](lib/ship.sh), which `/stridify` Step 9
+runs once ([`commands/stridify.md`](commands/stridify.md), Step 9):
 
 ```
 POST {your API URL}/api/tasks/batch
@@ -86,24 +88,40 @@ Content-Type: application/json
 
 - **Destination host** is whatever you configured as the `**API URL:**` in
   `.stride_auth.md` — `https://www.stridelikeaboss.com` by default. The hostname
-  is not hardcoded into the curl call; it is sourced from your auth file. The
+  is not hardcoded into the curl call; it is read from your auth file. The
   plugin contacts no other host.
 - **Payload** is the decomposed batch JSON (the goals/tasks `/stridify` produced
   from your requirements doc), with the three local audit fields (`source_spec`,
-  `source_spec_sha256`, `decomposition_notes`) stripped in memory before send.
-  It contains only the task content you reviewed and approved at the preview
-  gate.
-- **Header-only token:** the token is passed solely via
-  `-H "Authorization: Bearer $STRIDE_API_TOKEN"`, never as a `ps`-visible
-  positional argument. `curl -v` is **explicitly prohibited** so the
-  Authorization header is never echoed
-  ([`commands/stridify.md:151,560`](commands/stridify.md)), and the variable is
-  `unset` immediately after the call
-  ([`commands/stridify.md:557`](commands/stridify.md)).
+  `source_spec_sha256`, `decomposition_notes`) stripped into a mode-600 temp
+  file and sent with `--data-binary @<file>`. It contains only the task content
+  you reviewed and approved at the preview gate.
+- **Token never on a command line or on disk:** `ship.sh` pipes the
+  `Authorization` header to curl as a config on its stdin (`curl -K -`, written
+  by the shell's `printf` builtin), so the token is on no process's argv (argv
+  is visible to `ps`) and in no file. Any inherited `STRIDE_API_TOKEN` is unset
+  at startup and auth is read only after the payload is prepared, so no child
+  process other than curl ever has the token in its environment. curl runs with
+  `-q` first, so `~/.curlrc` cannot switch on verbose output; with `-g`, so a
+  `{}` or `[]` in the URL cannot expand into a repeated POST; and never with
+  `-v`, so the header is never echoed.
+- **Token never printed:** the script turns off a caller's `xtrace`
+  (`bash -x`, `SHELLOPTS=xtrace`) and `allexport` (`bash -a`) before it reads
+  anything, and every response body or curl message it prints has the token
+  (also in JSON-escaped or percent-encoded form), anything shaped like a Stride
+  token (which catches a truncated echo), and the value of any
+  `Bearer <value>` replaced with `[REDACTED]` — a development server's debug
+  error page echoes request headers, including `Authorization`. The token
+  reaches that scrubber on a pipe, never on argv or in an environment. (Earlier releases passed the header as
+  `-H "Authorization: Bearer $STRIDE_API_TOKEN"` and described that as not
+  `ps`-visible; it was visible — fixed by D310.)
+- **Temp files:** the payload, response body and curl stderr (none of which
+  holds the token) are created mode 600 under the system temp dir and removed
+  on success, failure and interrupt (`INT`, `TERM`, `HUP`). If one cannot be
+  created, the script stops before any request is sent.
 
-The only other `curl` in the repo lives in
-[`lib/run_smoke_test.sh:214-220`](lib/run_smoke_test.sh) and runs **only** under
-the explicit `--live` flag; in default/dry-run mode it makes no network call.
+The smoke test's opt-in `--live` stage
+([`lib/run_smoke_test.sh`](lib/run_smoke_test.sh), Stage 7) ships through
+`ship.sh` as well; in default/dry-run mode it makes no network call.
 
 ## Token & credential handling
 
@@ -112,17 +130,22 @@ The bearer token and API URL are resolved at runtime by
 path passed as its argument — no other source:
 
 - **Prod-token disambiguation:** the token regex uses a `(?<!Local )` negative
-  lookbehind ([`lib/read_auth.py:38-39`](lib/read_auth.py)) so it matches the
+  lookbehind (`TOKEN_PATTERNS` in [`lib/read_auth.py`](lib/read_auth.py)) so it matches the
   production `**API Token:**` line and **not** the `**Local API Token:**` line.
 - **Token never reaches the error channel:** the resolved token is written
-  **only to stdout** as a sourceable `STRIDE_API_TOKEN=…` line
-  ([`lib/read_auth.py:108-109`](lib/read_auth.py)); every error path writes to
-  stderr and the code comments enforce that the token value is never placed in a
-  stderr message ([`lib/read_auth.py:21,95`](lib/read_auth.py)).
+  **only to stdout** as a `STRIDE_API_TOKEN=…` line, read by `ship.sh` in its
+  own process; every error path writes to stderr and the code comments enforce
+  that the token value is never placed in a stderr message
+  ([`lib/read_auth.py`](lib/read_auth.py), module docstring and the
+  missing-token branch).
+- **Eval-safe output:** both values are shell-quoted with `shlex.quote`, so
+  `ship.sh`'s `eval` of that output cannot execute anything the auth file
+  contains — a URL holding `&`, `;` or `$(...)` evaluates to the literal
+  string (regression tests in [`lib/test-ship.sh`](lib/test-ship.sh)).
 - **No hardcoded credential, no process-env read:** there is no token literal
   anywhere in the plugin, and `read_auth.py` does not read environment variables
-  (`os.environ` / `getenv` are absent). The token is passed only as a `curl`
-  header and never echoed, logged, or persisted.
+  (`os.environ` / `getenv` are absent). The token reaches curl only through
+  a pipe on its stdin, and is never echoed, logged or written to disk.
 - `.stride_auth.md` is user-created and must never be committed (stated in the
   README's auth section).
 
@@ -159,8 +182,10 @@ Confirmed by absence across all `.md`, `.sh`, `.py`, and `.json` files:
 - **No auto-update** — the plugin has no self-update mechanism; version changes
   are manual author releases.
 - **No arbitrary code execution** — the slash commands' `allowed-tools`
-  frontmatter enumerates the exact permitted Bash invocations; there is no `eval`
-  of untrusted content and no execution surface beyond the shipped `lib/` helpers.
+  frontmatter enumerates the exact permitted Bash invocations; the one `eval`
+  (in `lib/ship.sh`) takes `lib/read_auth.py` output whose values are
+  shell-quoted, and there is no execution surface beyond the shipped `lib/`
+  helpers.
 
 ## External dependency
 
