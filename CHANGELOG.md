@@ -22,7 +22,9 @@ Why accepted rather than backfilled:
 
 The audit also found **zero** GitHub releases without a matching tag, so the record is incomplete in only this one direction.
 
-## [Unreleased]
+## [0.12.1] - 2026-10-01
+
+Two fixes found while porting 0.12.0's review fixes to the other ideation ports, both already fixed in `stride-opencode-ideation` 0.5.0. No behaviour change for documents whose seams are already top-level numbered, bulleted or `###` items.
 
 ### Fixed — the reviewer's output-format block parses as JSON (D346)
 
