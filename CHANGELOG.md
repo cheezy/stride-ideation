@@ -28,6 +28,10 @@ The audit also found **zero** GitHub releases without a matching tag, so the rec
 
 `agents/requirements-reviewer.md` wrote its output schema with `"approved" | "issues_found"`, `"blocking" | "advisory"` and a twelve-way `section` union inside the ```json fence. That is not JSON, so a model copying the fence verbatim emitted invalid JSON. The block is now a parseable template, and the allowed `verdict`, `severity` and `section` values are listed in prose beneath it, unchanged. A new `lib/test-agent-json.sh` parses every ```json fence in both agent prompts with `json.loads`, requires at least one fence per prompt, and proves itself against a planted union. `lib/run_smoke_test.sh` runs it as Stage 6b.
 
+### Fixed — a nested numbered list no longer hijacks a bulleted seams section (D347)
+
+`_sti_seam_candidates` in `lib/filename.sh` matched numbered seam items with any amount of leading whitespace. Because a numbered list outranks bullets when the section's item shape is chosen, a bulleted `## Decomposition seams` section with an indented numbered step list under one bullet flipped to numbered mode: the nested steps became the seams and the real bulleted surfaces disappeared from the `--goal` advisory, the resolver and scoping alike. Numbered items now count only as top-level list items — at most 3 leading spaces, as markdown defines one — so a sub-list indented 4 or more spaces, or by a tab, stays part of the item above it. A sub-list indented only 1-3 spaces is still read as top level. `lib/test-stridify-per-goal.sh` gains case 23 (the reported doc shape, 3- and 4-space boundaries, a tab-indented sub-list, and a numbered sub-list under a numbered seam).
+
 ## [0.12.0] - 2026-10-01
 
 A hardening pass over `/ideate` and `/stridify` from a full plugin review: the token never reaches a command line, every Bash fragment runs correctly in the fresh shell each tool call gets, commits contain only the artifact, autosave actually happens, and the validator and section gate are scripted. Also includes three earlier fixes (D343, D344, D345) that had not yet been released.

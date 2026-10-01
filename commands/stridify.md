@@ -90,7 +90,7 @@ Before doing any expensive work, the command must confirm the input is a real, p
 
    | Shape | Item start | Used when |
    |---|---|---|
-   | Numbered bold item | `1. **Name** …` | any numbered bold item exists |
+   | Numbered bold item | `1. **Name** …` (top level, at most 3 leading spaces) | any top-level numbered bold item exists |
    | Bulleted bold item | `- **Name** …` (top level) | no numbered bold items |
    | Level-3 heading | `### Name` | neither of the above |
 

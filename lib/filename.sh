@@ -88,7 +88,10 @@ _sti_seam_candidates() {
   # "## Decomposition seams" section of <path>, in document order. The whole
   # section uses ONE item shape, chosen by precedence:
   #
-  #   1. numbered bold items   ^\s*<digits>.\s+**<Name>**...
+  #   1. numbered bold items   ^ {0,3}<digits>.\s+**<Name>**...  (top level:
+  #                            at most 3 leading spaces, as markdown defines
+  #                            a list item, so a sub-list indented 4+ spaces
+  #                            or by a tab never takes over the section)
   #   2. top-level bulleted    ^[-*]\s+**<Name>**...   (only if no 1.)
   #   3. level-3 headings      ^###\s+<Name>            (only if no 1. or 2.)
   #
@@ -102,7 +105,7 @@ _sti_seam_candidates() {
     in_s && /^## / { in_s = 0 }
     in_s {
       n++; line[n] = NR; text[n] = $0
-      if ($0 ~ /^[[:space:]]*[0-9]+\.[[:space:]]+\*\*[^*]+\*\*/) has_num = 1
+      if ($0 ~ /^ ? ? ?[0-9]+\.[[:space:]]+\*\*[^*]+\*\*/) has_num = 1
       else if ($0 ~ /^[-*][[:space:]]+\*\*[^*]+\*\*/) has_bul = 1
       else if ($0 ~ /^###[[:space:]]+[^[:space:]]/) has_h3 = 1
     }
@@ -110,8 +113,8 @@ _sti_seam_candidates() {
       shape = has_num ? "num" : (has_bul ? "bul" : (has_h3 ? "h3" : ""))
       for (i = 1; i <= n; i++) {
         s = text[i]; name = ""
-        if (shape == "num" && s ~ /^[[:space:]]*[0-9]+\.[[:space:]]+\*\*[^*]+\*\*/) {
-          sub(/^[[:space:]]*[0-9]+\.[[:space:]]+\*\*/, "", s)
+        if (shape == "num" && s ~ /^ ? ? ?[0-9]+\.[[:space:]]+\*\*[^*]+\*\*/) {
+          sub(/^ ? ? ?[0-9]+\.[[:space:]]+\*\*/, "", s)
           name = substr(s, 1, index(s, "**") - 1)
         } else if (shape == "bul" && s ~ /^[-*][[:space:]]+\*\*[^*]+\*\*/) {
           sub(/^[-*][[:space:]]+\*\*/, "", s)

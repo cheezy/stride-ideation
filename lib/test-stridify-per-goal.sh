@@ -430,7 +430,7 @@ else
   fail "case 15d: scoped prompt missing dispatch-scoping notice"
 fi
 
-# === cases 16-22: one seam definition for count, resolve and scope (D313) ===
+# === cases 16-23: one seam definition for count, resolve and scope (D313) ===
 
 # seams_doc <file> — write a doc whose seams section body comes from stdin.
 seams_doc() {
@@ -567,6 +567,84 @@ for doc in seven-surfaces bulleted headings mixed dash-name; do
   done < <(sti_extract_seams "$TMP/$doc.md")
 done
 [ "$case22_ok" = 1 ] && pass "case 22: for every shape, each extracted index scopes to the seam it names"
+
+# === case 23: numbered seams are top-level items only (D347) ==============
+# A numbered item counts as a seam only with at most 3 leading spaces, as
+# markdown defines a list item. A sub-list indented 4+ spaces (or by a tab)
+# must neither add seams nor switch a bulleted section to numbered mode.
+
+# 23a: nested numbered steps under bulleted seams (the reported doc shape).
+seams_doc "$TMP/nested-steps.md" <<'EOF'
+- **Kanban app** — owns the contract
+    1. **Schema** — a step, not a seam
+    2. **Migration** — a step, not a seam
+- **stride plugin** — adapter
+EOF
+if [ "$(names_of "$TMP/nested-steps.md")" = "Kanban app|stride plugin|" ] \
+   && [ "$(advisory_count "$TMP/nested-steps.md")" = "2" ] \
+   && [ "$(sti_resolve_goal "$TMP/nested-steps.md" "stride plugin" | cut -f1)" = "2" ]; then
+  pass "case 23a: a nested numbered sub-list under bulleted seams does not take over the section"
+else
+  fail "case 23a: nested numbered steps" "names=$(names_of "$TMP/nested-steps.md")"
+fi
+case23a_scoped="$(sti_scope_doc_to_seam "$TMP/nested-steps.md" 1)"
+if printf '%s\n' "$case23a_scoped" | grep -qF -- '- **Kanban app**' \
+   && printf '%s\n' "$case23a_scoped" | grep -qF '1. **Schema**' \
+   && printf '%s\n' "$case23a_scoped" | grep -qF '2. **Migration**' \
+   && ! printf '%s\n' "$case23a_scoped" | grep -qF '**stride plugin**'; then
+  pass "case 23a: scoping index 1 keeps Kanban app with its nested steps and drops stride plugin"
+else
+  fail "case 23a: scoping the nested-steps doc" "$(printf '%s\n' "$case23a_scoped" | sed -n '/Decomposition seams/,/Assumptions/p')"
+fi
+
+# 23b: a numbered seam indented 3 spaces is still a top-level item.
+seams_doc "$TMP/three-space.md" <<'EOF'
+   1. **Alpha** — first
+   2. **Beta** — second
+EOF
+if [ "$(names_of "$TMP/three-space.md")" = "Alpha|Beta|" ]; then
+  pass "case 23b: numbered seams indented 3 spaces are still extracted"
+else
+  fail "case 23b: 3-space numbered seams" "names=$(names_of "$TMP/three-space.md")"
+fi
+
+# 23c: numbered items indented 4 spaces are not seams; with nothing else in
+# the section it is present but empty (rc 4, the case 20 contract).
+seams_doc "$TMP/four-space.md" <<'EOF'
+    1. **Alpha** — indented code-block depth, not a list item
+EOF
+sti_resolve_goal "$TMP/four-space.md" 1 > /dev/null
+case23c_rc=$?
+if [ "$(count_of "$TMP/four-space.md")" = "0" ] && [ "$case23c_rc" = "4" ]; then
+  pass "case 23c: numbered items indented 4 spaces are not seams (resolve rc 4)"
+else
+  fail "case 23c: 4-space numbered items" "count=$(count_of "$TMP/four-space.md") rc=$case23c_rc"
+fi
+
+# 23d: a tab-indented numbered sub-list under bulleted seams.
+printf -- '- **Kanban app** — owns the contract\n\t1. **Schema** — a step\n- **stride plugin** — adapter\n' \
+  | seams_doc "$TMP/tab-steps.md"
+if [ "$(names_of "$TMP/tab-steps.md")" = "Kanban app|stride plugin|" ]; then
+  pass "case 23d: a tab-indented numbered sub-list under bulleted seams is not a seam"
+else
+  fail "case 23d: tab-indented numbered steps" "names=$(names_of "$TMP/tab-steps.md")"
+fi
+
+# 23e: a 4-space numbered sub-list under a numbered seam adds no seams and
+# scopes as part of the item above it.
+seams_doc "$TMP/num-under-num.md" <<'EOF'
+1. **Kanban app** — owns the contract
+    1. **Schema** — a step, not a seam
+2. **stride plugin** — adapter
+EOF
+case23e_scoped="$(sti_scope_doc_to_seam "$TMP/num-under-num.md" 1)"
+if [ "$(names_of "$TMP/num-under-num.md")" = "Kanban app|stride plugin|" ] \
+   && printf '%s\n' "$case23e_scoped" | grep -qF '1. **Schema**' \
+   && ! printf '%s\n' "$case23e_scoped" | grep -qF '**stride plugin**'; then
+  pass "case 23e: a numbered sub-list under a numbered seam adds no seams and stays with its parent"
+else
+  fail "case 23e: numbered sub-list under numbered seams" "names=$(names_of "$TMP/num-under-num.md")"
+fi
 
 # === summary ==============================================================
 
