@@ -246,7 +246,7 @@ Agent(
 )
 ```
 
-The subagent receives the requirements doc as its entire input (no codebase access, no Stride API access, no clarifying-question loop). Its prompt at `agents/requirements-decomposer.md` documents the decomposition methodology, the canonical batch JSON shape, and the output contract.
+The subagent receives the requirements doc as its input (it may Read/Grep the project the doc names to ground `key_files`, marking unconfirmed paths as proposed; no Stride API access, no clarifying-question loop). Its prompt at `agents/requirements-decomposer.md` documents the decomposition methodology, the canonical batch JSON shape, and the output contract.
 
 **(7a) Classify the dispatch outcome.** After each `Agent` call, classify the result before deciding whether to retry. This mirrors the explicit branching of Step 9c: every outcome maps to exactly one row.
 

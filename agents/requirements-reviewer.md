@@ -110,13 +110,13 @@ Rules:
   "summary": "2 issues found: one missing measurable success metric, one goal/non-goal contradiction.",
   "issues": [
     {
-      "severity": "blocking",
+      "severity": "advisory",
       "section": "Success Metrics",
       "description": "The 'reduce friction' metric has no measurable proxy — a reader cannot tell whether it succeeded.",
       "suggestion": "Replace with a specific number (e.g., approval lag p50 under 8 hours within 2 weeks)."
     },
     {
-      "severity": "advisory",
+      "severity": "blocking",
       "section": "cross-section",
       "description": "Goal 'auto-archive read items' would also accomplish non-goal 'reduce inbox volume'.",
       "suggestion": "Either drop the non-goal or restate the goal so the two are independent."
