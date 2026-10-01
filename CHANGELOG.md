@@ -22,9 +22,9 @@ Why accepted rather than backfilled:
 
 The audit also found **zero** GitHub releases without a matching tag, so the record is incomplete in only this one direction.
 
-## [Unreleased]
+## [0.12.0] - 2026-10-01
 
-A hardening pass over `/ideate` and `/stridify` from a full plugin review: the token never reaches a command line, every Bash fragment runs correctly in the fresh shell each tool call gets, commits contain only the artifact, autosave actually happens, and the validator and section gate are scripted. Also includes three earlier unreleased fixes (D343, D344, D345). No version is bumped here.
+A hardening pass over `/ideate` and `/stridify` from a full plugin review: the token never reaches a command line, every Bash fragment runs correctly in the fresh shell each tool call gets, commits contain only the artifact, autosave actually happens, and the validator and section gate are scripted. Also includes three earlier fixes (D343, D344, D345) that had not yet been released.
 
 ### Added
 
