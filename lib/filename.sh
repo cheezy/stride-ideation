@@ -21,8 +21,11 @@
 # All output is written to stdout. Errors go to stderr with a non-zero
 # exit code. Source this file, or call functions directly via:
 #   bash -c '. lib/filename.sh; sti_unique_path docs/spec 2026-05-12T103000 foo requirements md'
-
-set -u
+#
+# This file is SOURCED into the caller's shell, so it must not change any
+# shell option (no file-scope `set -u`/`set -e`): an inherited nounset aborts
+# the caller on its next optional variable. Functions default every argument
+# with `${N:-}` instead.
 
 sti_slugify() {
   local input="${1:-}"

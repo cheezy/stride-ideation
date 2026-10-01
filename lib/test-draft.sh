@@ -207,6 +207,38 @@ else
   no "draft_find: leaked output for an absent dir: $ABS"
 fi
 
+# --- sourcing leaves the caller's shell options alone -----------------------
+#
+# Each probe runs in a child `bash -c`: this script already runs with set -u,
+# so checking here would hide a helper that turns nounset on (D343).
+
+nounset_probe() {
+  # $1 = commands to run before sourcing; prints nounset state after.
+  env -u DRAFT_PATH bash -c "$1"'
+    . "$0"
+    case $- in *u*) echo on ;; *) echo off ;; esac' "${SCRIPT_DIR}/draft.sh" 2>&1
+}
+
+assert_eq "sourcing: nounset stays off when the caller had it off" \
+  "$(nounset_probe ':')" "off"
+
+assert_eq "sourcing: nounset stays on when the caller had it on" \
+  "$(nounset_probe 'set -u')" "on"
+
+assert_eq "sourcing twice: nounset still off" \
+  "$(nounset_probe '. "$0"')" "off"
+
+assert_eq "sourcing: an unset optional variable after sourcing does not abort" \
+  "$(env -u DRAFT_PATH bash -c '
+    . "$0"
+    if [ -n "$DRAFT_PATH" ]; then echo set; fi
+    echo ok' "${SCRIPT_DIR}/draft.sh" 2>&1; echo "rc=$?")" "ok
+rc=0"
+
+assert_eq "sourcing: documented bash -c call form still works" \
+  "$(bash -c '. "$0"; sti_draft_path .stride 2026-05-12T103000 foo' "${SCRIPT_DIR}/draft.sh" 2>&1)" \
+  ".stride/2026-05-12T103000-foo-draft.md"
+
 # --- summary ----------------------------------------------------------------
 
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
