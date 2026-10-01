@@ -447,11 +447,13 @@ Then `exit 1`. **No Stride API POST runs in this branch.**
 
 Four sub-steps that together produce the on-disk audit artifact.
 
-**(8a) Validate the subagent output.** First use the `Write` tool to write the JSON extracted in Step 7d, verbatim, to `.stride/stridify-subagent-output.json` (the gitignored `.stride/` scratch directory `/ideate` also uses; the file is overwritten on every run and never committed). The subagent's output is untrusted, so it never goes into a Bash call itself. Then run the structural validator on that file at `lib/validate_batch.py`. The validator owns the canonical implementation of every check; the command body delegates and surfaces the validator's stderr verbatim on failure:
+**(8a) Validate the subagent output.** First use the `Write` tool to write the JSON extracted in Step 7d, verbatim, to `.stride/stridify-subagent-output.json` (the scratch directory `/ideate` also uses; the file is overwritten on every run and never committed). The fragment also makes `.stride/` ignore itself — a `.stride/.gitignore` containing `*` is written when absent, never overwritten — so the scratch file stays out of `git status` in any repo. The subagent's output is untrusted, so it never goes into a Bash call itself. Then run the structural validator on that file at `lib/validate_batch.py`. The validator owns the canonical implementation of every check; the command body delegates and surfaces the validator's stderr verbatim on failure:
 
 ```bash
 # Carried forward: none (the JSON is in the scratch file written just before this call)
 [ -n "${CLAUDE_PLUGIN_ROOT}" ] || { echo "stride-ideation: CLAUDE_PLUGIN_ROOT is not set — run this from the installed stride-ideation plugin" >&2; exit 1; }
+. "${CLAUDE_PLUGIN_ROOT}/lib/draft.sh" || exit 1
+sti_scratch_dir .stride stridify-subagent-output.json || exit 1
 python3 "${CLAUDE_PLUGIN_ROOT}/lib/validate_batch.py" .stride/stridify-subagent-output.json || exit 1
 ```
 

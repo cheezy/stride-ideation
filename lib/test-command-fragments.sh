@@ -333,6 +333,7 @@ mkdir -p "$REPO/.stride"
 cp "$TMP/good.json" "$REPO/.stride/stridify-subagent-output.json"
 run "$S/Step_8-1.sh"
 check "stridify Step 8a: validates the written JSON in a fresh shell" 0
+eq "stridify Step 8a: .stride/ ignores itself" "$(cat "$REPO/.stride/.gitignore" 2>/dev/null)" "*"
 printf '{"tasks": []}\n' > "$REPO/.stride/stridify-subagent-output.json"
 run "$S/Step_8-1.sh"
 check "stridify Step 8a: rejects a wrong-root batch (exit 1)" 1
@@ -385,8 +386,10 @@ check "ideate Step 4 invariant: passes in a fresh session" 0
 
 mkdir -p "$REPO/.stride"
 printf 'old draft' > "$REPO/.stride/2026-05-01T000000-$ISLUG-draft.md"
+rm -f "$REPO/.stride/.gitignore"
 run "$I/Step_4d-1.sh" SLUG "$ISLUG"
 check "ideate Step 4d: finds a draft in a fresh shell" 0
+eq "ideate Step 4d: .stride/ ignores itself" "$(cat "$REPO/.stride/.gitignore" 2>/dev/null)" "*"
 EXISTING="$(carry EXISTING_DRAFT)"
 eq "ideate Step 4d: carries the existing draft" "$EXISTING" ".stride/2026-05-01T000000-$ISLUG-draft.md"
 

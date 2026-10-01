@@ -125,6 +125,22 @@ On a `--continue` session the round-1 recap reflects whatever the prior document
 
 When the command threads `input_notes` (the `--input` brain-dump seed, analogous to `prior_doc` but raw rather than a committed requirements doc), the skill pre-populates draft sections wherever the notes clearly map to a gated section and the round-1 recap reflects that seeding — but a seeded section starts at **thin**, not **solid**, because unconfirmed brain-dump content has not yet been verified section-by-section with the human. The seed lowers the starting cost, never the bar: every hard gate, the round-3 framing checkpoint, the premortem, and the reviewer pass still run, and the rounds focus on the gaps the notes did not cover. `input_notes` and `prior_doc` are independent and may both be present in one session.
 
+## Autosave
+
+**Mandatory whenever the command passes a `draft_path`.** After every round — once that round's answers are folded into the draft, before the next round's recap — the skill writes the current draft to `draft_path` with the `Write` tool, replacing the file. The draft is a markdown file holding every section drafted so far, as the requirements template lays them out, under a short round-state header:
+
+> `<!-- stride-ideation draft — slug: <slug>; profile: <profile>; completed round: <N>; next: <what the next round targets> -->`
+
+**On start, load an existing draft.** At round 1, if the file at `draft_path` exists and is non-empty (a resumed draft — `/ideate` Step 4d only hands one over after the user chose "Resume"), read it with the `Read` tool and use it as starting context, the way `prior_doc` is used: drafted sections start at **thin** in the round-1 recap, and the round-state header says where the session stopped.
+
+Rules:
+
+- **Use the `Write` tool, never a Bash call, for the content.** The draft is user prose; putting it on a command line or in a heredoc would mean shell-quoting arbitrary text. (Scripted callers of `lib/draft.sh` can pipe content to `sti_draft_save` on stdin; the skill itself never does.)
+- **Never write the Stride API token or any other secret** into the draft — it holds only the session's draft prose and round state.
+- **Autosave is not a gate bypass.** A resumed draft is a starting point, not a confirmed answer: every hard gate, the round-3 framing checkpoint, the round-4 premortem, the challenge gate and the reviewer pass still run in full, and resumed sections are confirmed with the human like seeded ones.
+- **A failed write never blocks the session.** If the write fails, say so once in one line and continue; autosave is a recovery convenience.
+- **The scratch file is never committed.** `.stride/` carries its own `.gitignore` (written by `/ideate` Step 4d), the file is never `git add`-ed, and `/ideate` Step 9 deletes it once the requirements doc is committed.
+
 ## Uncertainty path
 
 **Mandatory on every gated-section question and every forcing question.** Alongside the real answer choices, each `AskUserQuestion` whose answer feeds a gated section or a profile-specific forcing question MUST offer a first-class option that means **"I'm not sure — propose candidates for me."** The most valuable moments in ideation are exactly when the user is uncertain; without this escape hatch a forced pick leaves them only two bad choices — bail, or enter a low-quality answer. The option turns the skill into a thinking partner instead of an interrogator.

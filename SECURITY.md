@@ -175,12 +175,12 @@ Both writes are committed for audit and are ordinary project files — neither
 contains any credential:
 
 - **`/ideate`** writes a timestamped requirements Markdown document and commits
-  it ([`commands/ideate.md:215-231`](commands/ideate.md)). During the session an
-  intra-session autosave scratch file is written under a **gitignored** `.stride/`
+  it ([`commands/ideate.md`](commands/ideate.md), Steps 8-9). During the session an
+  intra-session autosave scratch file is written under a self-ignoring `.stride/`
   path and deleted on successful commit; `lib/draft.sh` documents that it never
   serializes any secret — it writes only the content it is handed, and the API
   token is not in scope during ideation at all
-  ([`lib/draft.sh:20-24`](lib/draft.sh)).
+  ([`lib/draft.sh`](lib/draft.sh), header comment).
 - **`/stridify`** writes a timestamped `<ts>-<slug>-stride-batch.json` sibling to
   the requirements doc and commits it
   ([`commands/stridify.md:456-465`](commands/stridify.md)). On the rare path
