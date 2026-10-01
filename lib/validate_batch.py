@@ -46,12 +46,47 @@ them would reject batches the server accepts.
 """
 
 import json
+import re
 import sys
 from typing import Any
 
 
 # A nested task's type. Goals carry type 'goal'; a task never does.
 TASK_TYPES = ("work", "defect")
+
+# The only keys a batch root may carry: 'goals' plus the local audit fields
+# /stridify stamps (and lib/strip_audit_fields.py removes before the POST).
+ROOT_KEYS = ("goals", "source_spec", "source_spec_sha256", "decomposition_notes")
+
+# Credential shapes that must never ride along in task text: a Stride API
+# token, or the value of a Bearer header. Matched for an advisory warning;
+# the matched value is never printed.
+SECRET_PATTERNS = (
+    re.compile(r"stride_[a-z]{2,10}_[A-Za-z0-9+/=_.-]{8,}"),
+    re.compile(r"(?i)\bbearer\s+[A-Za-z0-9+/=_.~-]{8,}"),
+)
+
+
+def looks_secret(text: str) -> bool:
+    return any(p.search(text) for p in SECRET_PATTERNS)
+
+
+def secret_paths(node, path="root"):
+    """Yield the JSON path of every key or string value that looks like a
+    credential. A credential-shaped key is redacted in the path itself, so a
+    warning never prints the secret."""
+    if isinstance(node, dict):
+        for key, value in node.items():
+            label = "<redacted-key>" if looks_secret(str(key)) else key
+            child = f"{path}.{label}" if path != "root" else label
+            if label != key:
+                yield child
+            yield from secret_paths(value, child)
+    elif isinstance(node, list):
+        for idx, value in enumerate(node):
+            yield from secret_paths(value, f"{path}[{idx}]")
+    elif isinstance(node, str) and looks_secret(node):
+        yield path
 
 
 def fail(message: str) -> "None":
@@ -133,6 +168,13 @@ def validate(path: str) -> "None":
             "root has both 'goals' and 'tasks' — Stride's POST /api/tasks/batch "
             "takes tasks only nested inside each goal (goals[].tasks); remove "
             "the root 'tasks' key"
+        )
+    extra = sorted(k for k in doc.keys() if k not in ROOT_KEYS)
+    if extra:
+        fail(
+            f"root has unexpected key(s) {extra} alongside 'goals' — a batch "
+            f"root holds only 'goals' plus the local audit fields "
+            f"{list(ROOT_KEYS[1:])}"
         )
 
     # (c) empty_goals
@@ -259,6 +301,16 @@ def validate(path: str) -> "None":
                         f"{task_idx} — array-index dependencies must point "
                         f"to an earlier sibling"
                     )
+
+    # All fatal checks passed — advisory credential scan. The batch is
+    # committed and POSTed where every board member can read it, so a
+    # token-shaped string is surfaced by path (never by value).
+    for path in secret_paths(doc):
+        warn(
+            f"{path} looks like it contains a credential (a Stride token or "
+            f"Bearer value) — remove it before shipping; the batch is "
+            f"committed and readable by everyone on the board"
+        )
 
     # All fatal checks passed — advisory scored-field completeness pass.
     # Warnings never precede a fatal exit (every fail() above returns first)

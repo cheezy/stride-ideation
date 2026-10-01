@@ -303,6 +303,29 @@ lacks "2xx listing no goals: does not claim goals already exist" "$C/err" "alrea
 
 # --- failures before any request ------------------------------------------------
 
+# The configured token pasted into task text is refused before any request.
+python3 - "$TMP/batch.json" "$TMP/token-batch.json" "$TOKEN" <<'PY'
+import json, sys
+doc = json.load(open(sys.argv[1]))
+doc["goals"][0]["tasks"][0]["description"] = "auth is " + sys.argv[3]
+json.dump(doc, open(sys.argv[2], "w"))
+PY
+FAKE_CODE=201 FAKE_BODY="$TMP/created.json" run_ship tokenbatch "$TMP/token-batch.json"
+rc_is "token in batch: exits 1" 1
+contains "token in batch: says nothing was sent" "$C/err" "contains the configured Stride API token; nothing was sent"
+if [ ! -s "$C/log/argv" ]; then pass "token in batch: nothing is POSTed"; else fail "token in batch: curl ran"; fi
+no_token_anywhere "token in batch: the token is not printed"
+no_temp_left "token in batch: every temp file is removed"
+
+# ship.sh validates the exact payload it sends, in its own process.
+printf '{"goals": [{"title": "G", "type": "goal", "tasks": [{"title": "t", "type": "goal"}]}]}\n' > "$TMP/invalid-batch.json"
+FAKE_CODE=201 FAKE_BODY="$TMP/created.json" run_ship invalidbatch "$TMP/invalid-batch.json"
+rc_is "invalid batch: exits 1" 1
+contains "invalid batch: says nothing was sent" "$C/err" "failed validation; nothing was sent"
+contains "invalid batch: the validator's reason is shown" "$C/err" "must be 'work' or 'defect'"
+if [ ! -s "$C/log/argv" ]; then pass "invalid batch: nothing is POSTed"; else fail "invalid batch: curl ran"; fi
+no_temp_left "invalid batch: every temp file is removed"
+
 printf '{"goals": [' > "$TMP/broken.json"
 FAKE_CODE=201 FAKE_BODY="$TMP/created.json" run_ship badpayload "$TMP/broken.json"
 rc_is "unparseable batch: exits 1" 1

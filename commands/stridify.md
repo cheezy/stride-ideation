@@ -1,7 +1,7 @@
 ---
-description: End-to-end pipeline from a stride-ideation requirements doc to created Stride goals. Validates the seven required sections, preflights auth, dispatches the requirements-decomposer subagent, stamps source_spec + source_spec_sha256, writes and commits a timestamped sibling batch JSON, then POSTs to the Stride API and renders the created G/W identifiers.
+description: End-to-end pipeline from a stride-ideation requirements doc to created Stride goals. Validates the seven required sections, preflights auth, dispatches the requirements-decomposer subagent, stamps source_spec + source_spec_sha256, writes and commits a timestamped sibling batch JSON, then POSTs to the Stride API and renders the created G/W identifiers. With --batch <path>, ships an existing batch JSON instead: validates it, previews and gates on approval, then POSTs — no decomposition, no new commit.
 allowed-tools: Bash(date:*), Bash(git:*), Bash(. *:*), Bash(bash:*), Bash(shasum:*), Bash(sha256sum:*), Bash(awk:*), Bash(cut:*), Bash(sed:*), Bash(basename:*), Bash(dirname:*), Bash(grep:*), Bash(test:*), Bash(tr:*), Bash(python3:*), Read, Write, Glob, Grep, Agent
-argument-hint: "<path-to-requirements.md> [--goal <name|index>] [--yes]"
+argument-hint: "<path-to-requirements.md> [--goal <name|index>] [--yes] | --batch <path-to-stride-batch.json> [--yes]"
 ---
 
 # /stride-ideation:stridify
@@ -23,12 +23,44 @@ Follow these steps in order. Do NOT skip steps.
 
 ### Step 1: Parse `$ARGUMENTS`
 
-The user invoked you with `$ARGUMENTS`. Parse in this fixed order — `--goal` first, then `--yes` / `--auto-approve`, then the trimmed remainder is `REQUIREMENTS_PATH`:
+The user invoked you with `$ARGUMENTS`. Parse in this fixed order — `--batch` first, then `--goal`, then `--yes` / `--auto-approve`, then the trimmed remainder is `REQUIREMENTS_PATH`:
+
+- If `--batch` appears, set `BATCH_ARG` to the value of the **next** token and remove both tokens — or, for the `--batch=<value>` form, to the post-`=` portion (split on the FIRST `=` only) and remove the single token. `--batch` ships an **existing** batch JSON (for example the one a declined run or a failed POST left on disk) without decomposing again: see Step 1b.
 
 - If `--goal` appears, set `GOAL_ARG` to the value of the **next** token and remove both tokens — or, if the `--goal=<value>` form is used, set `GOAL_ARG` to the post-`=` portion (split on the FIRST `=` only, so a value containing `=` is preserved verbatim) and remove the single token. Accept both shapes — `--goal <value>` and `--goal=<value>` — matching how `/stride-ideation:ideate` handles `--continue` and `--profile`. Do NOT validate `GOAL_ARG` here; resolution against the doc's `## Decomposition seams` section happens in new Step 2b, after the doc has been read and the seven-section gate has passed.
 - If `--goal` is absent, carry `GOAL_ARG=''` forward (and `GOAL_SLUG=''` once Step 2b is skipped). The command runs in its historical "all goals" mode.
 - If `--yes` **or** `--auto-approve` appears as a bare token, set `AUTO_APPROVE=1` and remove that token. This is a **boolean flag — it takes no value**, so there is no `--yes=<value>` form; treat any token equal to `--yes` or `--auto-approve` as the switch and consume it. The flag bypasses the Step 8.5 preview-and-approval gate, preserving the historical fire-and-forget behavior for scripted / non-interactive callers. If neither token appears, leave `AUTO_APPROVE` unset (equivalently `0`); the command runs interactively and Step 8.5 prompts for approval before the POST. The bypass MUST be an explicit user-supplied flag — never infer it; tasks must never be shipped unreviewed by accident.
-- After flag tokens are consumed, trim the remainder and set `REQUIREMENTS_PATH`. If the remainder is empty, print *"Usage: `/stride-ideation:stridify <path-to-requirements.md> [--goal <name|index>] [--yes]`"* and exit non-zero.
+- After flag tokens are consumed, trim the remainder and set `REQUIREMENTS_PATH`. If the remainder is empty and `--batch` was not given, print *"Usage: `/stride-ideation:stridify <path-to-requirements.md> [--goal <name|index>] [--yes]` or `/stride-ideation:stridify --batch <path-to-stride-batch.json> [--yes]`"* and exit non-zero.
+- **`--batch` needs a value.** If `--batch` appears with no value — a bare trailing `--batch`, `--batch=`, or `--batch` followed by another flag such as `--yes` (any token starting with `--` is a flag, never a path) — print the usage line above and exit non-zero.
+- **`--batch` mode stands alone.** If `BATCH_ARG` is set together with `--goal`, print *"stride-ideation: --batch ships an existing batch as-is and cannot be combined with --goal (the goal was chosen when that batch was decomposed)"* and exit non-zero. If it is set and a requirements-doc path remains, print *"stride-ideation: --batch takes a batch JSON, not a requirements doc — drop the doc path, or drop --batch to decompose it"* and exit non-zero. Otherwise go to Step 1b and skip Steps 2–8 entirely.
+
+### Step 1b: Ship an existing batch (only with `--batch`)
+
+`--batch` exists so a batch that is already on disk — declined at the Step 8.5 gate, stopped by a failed POST, or saved by hand from a Step 7.5 recovery — can be shipped without re-running the decomposer (which would produce a different batch) and without a hand-written `curl`. It runs no decomposition, stamps nothing, writes and commits nothing, and never rewrites the batch file. In order:
+
+1. **Preflight auth** — run the Step 3 fragment exactly as written.
+2. **Validate the file and warn about duplicates.** Carry `BATCH_PATH` forward as the `--batch` value:
+
+   ```bash
+   # Carried forward: BATCH_PATH (the --batch value)
+   : "${BATCH_PATH:?stride-ideation: BATCH_PATH was not carried forward from the --batch value}"
+   [ -n "${CLAUDE_PLUGIN_ROOT}" ] || { echo "stride-ideation: CLAUDE_PLUGIN_ROOT is not set — run this from the installed stride-ideation plugin" >&2; exit 1; }
+   case "$BATCH_PATH" in
+     -*) echo "stride-ideation: batch path starts with '-'; pass it as ./$BATCH_PATH" >&2; exit 1 ;;
+   esac
+   if [ ! -f "$BATCH_PATH" ]; then
+     echo "stride-ideation: batch JSON not found at $BATCH_PATH" >&2
+     exit 1
+   fi
+   python3 "${CLAUDE_PLUGIN_ROOT}/lib/validate_batch.py" "$BATCH_PATH" || exit 1
+   echo "stride-ideation: --batch ships $BATCH_PATH as-is. If this batch was already shipped, shipping it again creates every goal and task a second time — check the Stride workspace's Backlog column first." >&2
+   ```
+
+   A validation failure stops here, before anything is sent — and `lib/ship.sh` validates the exact payload it sends once more in Step 9, so a file edited after this check still cannot ship unvalidated. A batch without the local audit fields (`source_spec`, `source_spec_sha256`, `decomposition_notes`) is fine — they are stripped before the POST anyway.
+3. **Preview and gate** — run Step 8.5 with the same `BATCH_PATH`, honoring `--yes` exactly as there. On decline, stop as Step 8.5c describes.
+4. **Ship** — on approval (or with `--yes`), run Step 9 with the same `BATCH_PATH`. It ships through `lib/ship.sh`, the only POST path this command has.
+
+Then stop — Step 10's rendering is part of Step 9's output.
 
 ### Step 2: Validate the requirements doc
 
@@ -392,20 +424,19 @@ resulting fenced ```json block as `<BATCH_TARGET_PATH>` (the target path
 computed by Step 5; for the run that produced this file, that path was
 `<TARGET_PATH>`). Then run:
 
+    /stride-ideation:stridify --batch "<BATCH_TARGET_PATH>"
+
+which checks the JSON against the validator's six named checks
+(parse_error / wrong_root_key / empty_goals / goal_missing_field /
+bad_dependency_index / length_limit), previews the goals and tasks, asks
+for approval, and ships it through the plugin's ship script — no second
+decomposition and no hand-written curl. To check the file without
+shipping it, run:
+
     python3 "${CLAUDE_PLUGIN_ROOT}/lib/validate_batch.py" "<BATCH_TARGET_PATH>"
 
-to confirm the JSON passes the validator's six named checks
-(parse_error / wrong_root_key / empty_goals / goal_missing_field /
-bad_dependency_index / length_limit). On success, ship it exactly as Step 9 of
-`commands/stridify.md` does:
-
-    bash "${CLAUDE_PLUGIN_ROOT}/lib/ship.sh" "<BATCH_TARGET_PATH>"
-
-which reads `.stride_auth.md`, strips the audit fields, POSTs the batch and
-renders the created identifiers in one process.
-
-The plugin path in those two commands is where the stride-ideation plugin
-was installed when this file was saved. If the plugin has been updated since,
+The plugin path in that command is where the stride-ideation plugin was
+installed when this file was saved. If the plugin has been updated since,
 that directory may be gone: substitute the current install location.
 
 This sibling file contains NO authentication material. The Stride API token
@@ -425,8 +456,8 @@ Last error from the final attempt:
 
 To recover: paste the prompt block from that file into a fresh Claude
 session; save the JSON response as <TARGET_PATH>; then run
-`python3 "${CLAUDE_PLUGIN_ROOT}/lib/validate_batch.py" "<TARGET_PATH>"` and
-`bash "${CLAUDE_PLUGIN_ROOT}/lib/ship.sh" "<TARGET_PATH>"` (Step 9 of commands/stridify.md).
+`/stride-ideation:stridify --batch "<TARGET_PATH>"` to validate, preview
+and ship it.
 
 The Stride API POST was NOT attempted.
 ```
@@ -459,7 +490,7 @@ The validator enforces six named checks, in order, followed by an advisory (non-
 | Check | Failure mode | Example error message |
 |---|---|---|
 | (a) `parse_error` | Input is not valid JSON | `JSON parse failed at line 3 col 7 (char 24): Expecting property name enclosed in double quotes` |
-| (b) `wrong_root_key` | Root has `tasks` (instead of, or alongside, `goals`) or any key other than `goals` | `root key 'tasks' is the most common batch-API mistake — Stride's POST /api/tasks/batch requires root key 'goals'` |
+| (b) `wrong_root_key` | Root has `tasks` (instead of, or alongside, `goals`), or any key other than `goals` and the three local audit fields | `root key 'tasks' is the most common batch-API mistake — Stride's POST /api/tasks/batch requires root key 'goals'` |
 | (c) `empty_goals` | `goals` missing, not an array, or empty | `root.goals is an empty array — the decomposer returned no goals` |
 | (d) `goal_missing_field` | A goal lacks `title`, `type`, or `tasks`; or a task is not an object with a non-empty string `title` and a `type` of `work` or `defect` | `goals[0] is missing required field 'title'`, `goals[0].tasks[1].type must be 'work' or 'defect', got 'goal'` |
 | (e) `bad_dependency_index` | A task's `dependencies[]` index is out of range, negative, or a forward / self reference | `goals[0].tasks[1].dependencies references index 5 but goal only has 2 tasks (valid indices 0..1)` |
@@ -599,12 +630,12 @@ On **decline**, stop cleanly:
 ```bash
 # Carried forward: BATCH_PATH (Step 8d)
 : "${BATCH_PATH:?stride-ideation: BATCH_PATH was not carried forward from Step 8d}"
-echo "stride-ideation: declined. The batch JSON is on disk at $BATCH_PATH" >&2
-echo "(committed in git) for a later manual ship. No POST was attempted." >&2
+echo "stride-ideation: declined. The batch JSON is on disk at $BATCH_PATH; no POST was attempted." >&2
+echo "Ship it later, unchanged, with: /stride-ideation:stridify --batch \"$BATCH_PATH\"" >&2
 exit 0
 ```
 
-The decline path is a deliberate user choice, not a failure — exit `0`. **Do NOT delete or rewrite the on-disk batch JSON on decline**: it is the recovery artifact, already committed, and a future `/stridify` re-run or `lib/ship.sh` per Step 9 can ship it unchanged. The token is never printed in the preview or the gate output, and no POST is attempted before approval.
+The decline path is a deliberate user choice, not a failure — exit `0`. **Do NOT delete or rewrite the on-disk batch JSON on decline**: it is the recovery artifact, and `/stride-ideation:stridify --batch <path>` ships it unchanged later (re-running `/stridify` on the requirements doc would decompose again and produce a different batch). The token is never printed in the preview or the gate output, and no POST is attempted before approval.
 
 ### Step 9: Ship the batch — strip, POST, branch on HTTP status, render
 
@@ -629,7 +660,7 @@ The per-goal `created_by_agent` stamped in Step 8b is deliberately **not** in th
 
 If `curl` failed at the transport layer (non-zero exit, or an empty / `000` status), the script prints `stride-ideation: HTTP request failed before the Stride API responded:` followed by curl's **verbatim** stderr (token-scrubbed, as in 9c) — never a generic "something went wrong" wrapper; the actual cause (DNS resolution failure, connection refused, TLS handshake error, timeout) is the load-bearing diagnostic. If curl wrote nothing to stderr, it names curl's exit status instead. Exit 1.
 
-The on-disk batch JSON written in Step 8 is the recovery artifact: if the POST fails for any reason, the user has a complete, audited batch document on disk and in git, and `lib/ship.sh` can ship that file later without re-running the decomposer.
+The on-disk batch JSON written in Step 8 is the recovery artifact: if the POST fails for any reason, the user has a complete, audited batch document on disk and in git, and `/stride-ideation:stridify --batch <path>` ships that file later without re-running the decomposer.
 
 **(9c) Branch on the HTTP status code.** **Hard rule for every non-2xx branch: the response body is printed verbatim.** It is not parsed, reformatted, or summarized — the user needs the literal bytes the Stride API returned to debug the failure. Stride's 422 responses in particular carry a `details` array naming the offending field(s); rewriting the JSON would strip that signal. **The one exception is the token:** before printing, the script replaces the token (also in JSON-escaped or percent-encoded form), anything shaped like a Stride token, and the value of any `Bearer <value>` with `[REDACTED]`. A development server's debug error page echoes the request headers, so a verbatim 500 from a dev Stride would otherwise print the token.
 
@@ -643,7 +674,7 @@ The on-disk batch JSON written in Step 8 is the recovery artifact: if the POST f
 | Other (1xx, 3xx) | `stride-ideation: unexpected HTTP status <code>. Response body:`, then the full body verbatim. Exit 1. These shouldn't occur (the Stride API never returns 1xx, and curl is not asked to follow redirects), but if one shows up it is surfaced rather than swallowed. |
 | Transport failure | As in 9b: the header line plus curl's verbatim stderr. Exit 1. |
 
-**No retries.** When `/stridify` fails on a 4xx or 5xx, the user is the retry mechanism: they read the verbatim body, fix the underlying issue (regenerate the requirements doc and re-run `/stridify`, hand-edit the on-disk batch JSON and ship it with `lib/ship.sh`, wait out a transient 5xx, etc.), and re-invoke. Stride does not guarantee per-task idempotency on a partially-failed batch, so an automatic retry could double-create some tasks while leaving others to fail again. Manual retry is the safer contract.
+**No retries.** When `/stridify` fails on a 4xx or 5xx, the user is the retry mechanism: they read the verbatim body, fix the underlying issue (regenerate the requirements doc and re-run `/stridify`, hand-edit the on-disk batch JSON and ship it with `/stride-ideation:stridify --batch <path>`, wait out a transient 5xx, etc.), and re-invoke. Stride does not guarantee per-task idempotency on a partially-failed batch, so an automatic retry could double-create some tasks while leaving others to fail again. Manual retry is the safer contract.
 
 ### Step 10: Render the created identifiers and print the terminal message
 
@@ -669,7 +700,7 @@ Do NOT print "next step:" suggestions, do NOT propose follow-on commands. The te
 
 ## Resilience model
 
-`/stridify` is designed to survive a transient Anthropic API capacity spike without losing the assembled prompt or producing partial Stride state. The model has four layers, in execution order: (1) **Preflight advisory** — Step 2 prints a one-line suggestion to use `--goal` when the doc enumerates more than 3 surfaces under `## Decomposition seams` (informational, never blocking). (2) **Per-goal partitioning** — Step 1's optional `--goal <name|index>` flag scopes the prompt to one surface from the doc's `## Decomposition seams` section, reducing per-dispatch token count and the blast radius of a single failure. (3) **Subagent dispatch retry** — Step 7c retries the `Agent` dispatch up to **3 attempts** with ~30s / ~90s backoff (total budget ~2 min) when the failure classifies as transient (HTTP 529, network error, "overloaded" string). Terminal classifications (bad subagent name, contract violation, hard 4xx) fail fast on attempt 1 — retrying will not change the result. (4) **Retry-exhaustion fallback** — Step 7.5 writes the assembled prompt plus metadata to a sibling `<source-stem>-decomposer-prompt.md` file on exhaustion, with a recovery README naming the next concrete action (paste the prompt into a fresh Claude session, save the JSON response at the target path, then run `lib/validate_batch.py` and `lib/ship.sh` per Step 9). **The Stride API POST itself is NOT retried** — Step 9 fails fast on 4xx/5xx and surfaces the response body verbatim. Per-task idempotency on a partially-failed batch is not guaranteed, so an automatic POST retry could double-create some tasks while leaving others to fail again; the recovery contract is "the user reads the verbatim body and re-invokes" rather than "the command retries automatically".
+`/stridify` is designed to survive a transient Anthropic API capacity spike without losing the assembled prompt or producing partial Stride state. The model has four layers, in execution order: (1) **Preflight advisory** — Step 2 prints a one-line suggestion to use `--goal` when the doc enumerates more than 3 surfaces under `## Decomposition seams` (informational, never blocking). (2) **Per-goal partitioning** — Step 1's optional `--goal <name|index>` flag scopes the prompt to one surface from the doc's `## Decomposition seams` section, reducing per-dispatch token count and the blast radius of a single failure. (3) **Subagent dispatch retry** — Step 7c retries the `Agent` dispatch up to **3 attempts** with ~30s / ~90s backoff (total budget ~2 min) when the failure classifies as transient (HTTP 529, network error, "overloaded" string). Terminal classifications (bad subagent name, contract violation, hard 4xx) fail fast on attempt 1 — retrying will not change the result. (4) **Retry-exhaustion fallback** — Step 7.5 writes the assembled prompt plus metadata to a sibling `<source-stem>-decomposer-prompt.md` file on exhaustion, with a recovery README naming the next concrete action (paste the prompt into a fresh Claude session, save the JSON response at the target path, then run `/stride-ideation:stridify --batch <path>`). **The Stride API POST itself is NOT retried** — Step 9 fails fast on 4xx/5xx and surfaces the response body verbatim. Per-task idempotency on a partially-failed batch is not guaranteed, so an automatic POST retry could double-create some tasks while leaving others to fail again; the recovery contract is "the user reads the verbatim body and re-invokes" rather than "the command retries automatically".
 
 ## What this command does NOT do
 

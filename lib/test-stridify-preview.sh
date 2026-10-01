@@ -304,6 +304,184 @@ else
   pass "case 8: no Bearer/token/Authorization strings in preview or gate output (pitfall avoided)"
 fi
 
+# === cases 9-14: --batch mode (W2189) ======================================
+#
+# Mirrors stridify.md Step 1's --batch parse and its two rejections, then runs
+# the REAL Step 1b and Step 9 fragments (extracted from stridify.md with the
+# plugin-root token substituted, as Claude Code does) against a PATH-stubbed
+# curl, so the validate-then-ship path is the shipped one.
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PLUGIN_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+STRIDIFY="${PLUGIN_ROOT}/commands/stridify.md"
+
+# parse_batch_flag "<args>" — prints BATCH_ARG, GOAL_ARG and the remainder on
+# three lines, or "ERROR: <message>" for the two documented rejections.
+parse_batch_flag() {
+  # shellcheck disable=SC2206
+  local toks=( $1 ) batch="" batch_given=0 goal="" rest="" i=0
+  while [ "$i" -lt "${#toks[@]}" ]; do
+    case "${toks[$i]}" in
+      --batch) batch_given=1
+               case "${toks[$(( i + 1 ))]:-}" in --*) ;; *) i=$(( i + 1 )); batch="${toks[$i]:-}" ;; esac ;;
+      --batch=*) batch_given=1; batch="${toks[$i]#--batch=}" ;;
+      --goal) i=$(( i + 1 )); goal="${toks[$i]:-}" ;;
+      --goal=*) goal="${toks[$i]#--goal=}" ;;
+      --yes|--auto-approve) ;;
+      *) rest="${rest:+$rest }${toks[$i]}" ;;
+    esac
+    i=$(( i + 1 ))
+  done
+  if [ "$batch_given" = 1 ] && [ -z "$batch" ]; then
+    echo "ERROR: Usage: /stride-ideation:stridify --batch <path-to-stride-batch.json> [--yes]"
+  elif [ -n "$batch" ] && [ -n "$goal" ]; then
+    echo "ERROR: stride-ideation: --batch ships an existing batch as-is and cannot be combined with --goal"
+  elif [ -n "$batch" ] && [ -n "$rest" ]; then
+    echo "ERROR: stride-ideation: --batch takes a batch JSON, not a requirements doc"
+  else
+    printf '%s\n%s\n%s\n' "$batch" "$goal" "$rest"
+  fi
+}
+
+if [ "$(parse_batch_flag '--batch docs/a-stride-batch.json --yes' | head -n 1)" = "docs/a-stride-batch.json" ] \
+   && [ "$(parse_batch_flag '--batch=docs/x=y-stride-batch.json' | head -n 1)" = "docs/x=y-stride-batch.json" ]; then
+  pass "case 9: --batch parses in both shapes (split on the first '=' only)"
+else
+  fail "case 9: --batch parse" "$(parse_batch_flag '--batch=docs/x=y-stride-batch.json')"
+fi
+if parse_batch_flag '--batch b.json --goal 2' | grep -q '^ERROR: .*cannot be combined with --goal'; then
+  pass "case 10: --batch with --goal is rejected with a clear error"
+else
+  fail "case 10: --batch + --goal not rejected"
+fi
+if parse_batch_flag '--batch' | grep -q '^ERROR: Usage' && parse_batch_flag '--batch=' | grep -q '^ERROR: Usage' \
+   && parse_batch_flag '--batch --yes' | grep -q '^ERROR: Usage'; then
+  pass "case 10c: --batch with no value prints the usage line"
+else
+  fail "case 10c: bare --batch"
+fi
+if parse_batch_flag '--batch b.json docs/x-requirements.md' | grep -q '^ERROR: .*not a requirements doc'; then
+  pass "case 10b: --batch with a requirements-doc path is rejected"
+else
+  fail "case 10b: --batch + doc path not rejected"
+fi
+
+# Extract the real fragments.
+extract_step() {  # extract_step <heading prefix> <n> <out>
+  python3 - "$STRIDIFY" "$1" "$2" "$3" "$PLUGIN_ROOT" <<'PY'
+import re, sys
+src, prefix, n, out, root = sys.argv[1], sys.argv[2], int(sys.argv[3]), sys.argv[4], sys.argv[5]
+text = open(src).read().replace("${" + "CLAUDE_PLUGIN_ROOT" + "}", root)
+lines, heading, seen, i = text.split("\n"), "", 0, 0
+while i < len(lines):
+    if lines[i].startswith("### "):
+        heading = lines[i][4:]
+    m = re.match(r"^(\s*)```bash\s*$", lines[i])
+    if m and heading.startswith(prefix + ":"):
+        ind, body, i = len(m.group(1)), [], i + 1
+        while not re.match(r"^\s*```\s*$", lines[i]):
+            body.append(lines[i][ind:] if lines[i][:ind].strip() == "" else lines[i])
+            i += 1
+        seen += 1
+        if seen == n:
+            open(out, "w").write("\n".join(body) + "\n")
+            sys.exit(0)
+    i += 1
+sys.exit("block not found: " + prefix)
+PY
+}
+extract_step "Step 1b" 1 "$TMP/step1b.sh"
+extract_step "Step 9" 1 "$TMP/step9.sh"
+extract_step "Step 8.5" 2 "$TMP/step85c.sh"
+
+# Fake curl: records that it ran and answers 201 with a created batch.
+mkdir -p "$TMP/bin"
+cat > "$TMP/created.json" <<'EOF'
+{"success": true, "total": 1, "goals": [{"goal": {"identifier": "G42", "title": "Kanban app"}, "child_tasks": [{"identifier": "W420", "title": "Add queue"}]}]}
+EOF
+cat > "$TMP/bin/curl" <<EOF
+#!/usr/bin/env bash
+out=""
+while [ "\$#" -gt 0 ]; do [ "\$1" = "-o" ] && out="\$2"; shift; done
+cat > /dev/null
+: > "$TMP/curl.ran"
+cp "$TMP/created.json" "\$out"
+printf '201'
+EOF
+chmod +x "$TMP/bin/curl"
+printf -- '- **API URL:** `https://stride.example`\n- **API Token:** `stride_dev_PREVIEW_TEST_TOKEN`\n' > "$TMP/auth.md"
+
+# run_frag <fragment> <batch path> — fresh bash, BATCH_PATH as a literal.
+run_frag() {
+  rm -f "$TMP/curl.ran"
+  { printf "BATCH_PATH='%s'\n" "$2"; cat "$1"; } > "$TMP/frag.sh"
+  PATH="$TMP/bin:$PATH" STRIDE_AUTH_FILE="$TMP/auth.md" bash "$TMP/frag.sh" > "$TMP/frag.out" 2> "$TMP/frag.err"
+  FRC=$?
+  cat "$TMP/frag.out" "$TMP/frag.err" >> "$TMP/all-batch-output.txt"
+}
+
+REAL_BATCH="${PLUGIN_ROOT}/fixtures/2026-05-12T120000-dark-mode-toggle-stride-batch.json"
+cp "$REAL_BATCH" "$TMP/ship-me.json"
+SHA_BEFORE="$(shasum -a 256 "$TMP/ship-me.json" | cut -d' ' -f1)"
+run_frag "$TMP/step1b.sh" "$TMP/ship-me.json"
+if [ "$FRC" -eq 0 ] && grep -q 'creates every goal and task a second time' "$TMP/frag.err" && [ ! -e "$TMP/curl.ran" ]; then
+  pass "case 11: Step 1b validates a valid batch, warns about duplicate shipping, and sends nothing"
+else
+  fail "case 11: Step 1b on a valid batch" "rc=$FRC err=$(cat "$TMP/frag.err")"
+fi
+run_frag "$TMP/step9.sh" "$TMP/ship-me.json"
+if [ "$FRC" -eq 0 ] && [ -e "$TMP/curl.ran" ] && grep -q 'G42' "$TMP/frag.out" && grep -q 'W420' "$TMP/frag.out"; then
+  pass "case 12: Step 9 ships the --batch file through lib/ship.sh and renders the identifiers"
+else
+  fail "case 12: Step 9 ship" "rc=$FRC out=$(cat "$TMP/frag.out") err=$(cat "$TMP/frag.err")"
+fi
+if [ "$(shasum -a 256 "$TMP/ship-me.json" | cut -d' ' -f1)" = "$SHA_BEFORE" ]; then
+  pass "case 12b: the --batch file is never rewritten or re-stamped"
+else
+  fail "case 12b: --batch file changed"
+fi
+
+printf '{"goals": [{"title": "G", "type": "goal", "tasks": [{"title": "t", "type": "goal"}]}]}\n' > "$TMP/invalid.json"
+run_frag "$TMP/step1b.sh" "$TMP/invalid.json"
+if [ "$FRC" -eq 1 ] && grep -q "must be 'work' or 'defect'" "$TMP/frag.err" && [ ! -e "$TMP/curl.ran" ]; then
+  pass "case 13: an invalid batch fails validation before any POST"
+else
+  fail "case 13: invalid batch" "rc=$FRC err=$(cat "$TMP/frag.err")"
+fi
+run_frag "$TMP/step1b.sh" "$TMP/no-such-batch.json"
+if [ "$FRC" -eq 1 ] && grep -q 'batch JSON not found' "$TMP/frag.err"; then
+  pass "case 13b: a batch path that does not exist stops with a clear error"
+else
+  fail "case 13b: missing batch path" "rc=$FRC err=$(cat "$TMP/frag.err")"
+fi
+
+python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); [d.pop(k,None) for k in ("source_spec","source_spec_sha256","decomposition_notes")]; json.dump(d,open(sys.argv[2],"w"))' "$REAL_BATCH" "$TMP/unstamped.json"
+run_frag "$TMP/step1b.sh" "$TMP/unstamped.json"
+if [ "$FRC" -eq 0 ]; then
+  pass "case 14: a batch without the local audit fields still validates"
+else
+  fail "case 14: unstamped batch" "$(cat "$TMP/frag.err")"
+fi
+
+run_frag "$TMP/step85c.sh" "$TMP/ship-me.json"
+if [ "$FRC" -eq 0 ] && grep -qF -- "/stride-ideation:stridify --batch \"$TMP/ship-me.json\"" "$TMP/frag.err" && [ ! -e "$TMP/curl.ran" ]; then
+  pass "case 14b: the decline message names the --batch command and sends nothing"
+else
+  fail "case 14b: decline message" "$(cat "$TMP/frag.err")"
+fi
+if grep -qE 'stride_dev_PREVIEW_TEST_TOKEN|Bearer ' "$TMP/all-batch-output.txt"; then
+  fail "case 14c: --batch output contains auth material"
+else
+  pass "case 14c: no token or Bearer string in any --batch fragment's output (Step 1b, Step 9 ship, decline)"
+fi
+
+run_frag "$TMP/step1b.sh" "-x-stride-batch.json"
+if [ "$FRC" -eq 1 ] && grep -q "starts with '-'" "$TMP/frag.err" && [ ! -e "$TMP/curl.ran" ]; then
+  pass "case 14d: a batch path starting with '-' is refused before anything runs"
+else
+  fail "case 14d: dash path" "rc=$FRC err=$(cat "$TMP/frag.err")"
+fi
+
 # === summary ==============================================================
 
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"

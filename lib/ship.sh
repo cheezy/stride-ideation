@@ -23,6 +23,9 @@
 #   - every temp file (payload, response, curl stderr) is created mode 600
 #     under the system temp dir and removed on success, failure and interrupt.
 #
+# The payload is validated with lib/validate_batch.py in this process before
+# anything is sent.
+#
 # Exit codes:
 #   0  shipped (2xx) — including a 2xx whose body could not be rendered, which
 #      prints a do-not-re-run notice: the batch exists, re-running would
@@ -154,11 +157,34 @@ python3 "$SCRIPT_DIR/strip_audit_fields.py" "$BATCH_PATH" > "$PAYLOAD_FILE" || {
   echo "stride-ideation: failed to prepare API payload from $BATCH_PATH" >&2
   exit 1
 }
+# Validate the exact bytes about to be sent, in this process: the file on
+# disk may have changed since /stridify validated and previewed it (e.g.
+# --batch, where those are separate steps). Advisory warnings were already
+# shown at that step, so only the fatal diagnostic is surfaced here.
+python3 "$SCRIPT_DIR/validate_batch.py" "$PAYLOAD_FILE" > /dev/null || {
+  echo "stride-ideation: $BATCH_PATH failed validation; nothing was sent" >&2
+  exit 1
+}
 
 new_temp RESPONSE_FILE
 new_temp CURL_ERR_FILE
 
 read_auth
+
+# Refuse to send the configured API token as task content: a pasted recovery
+# transcript or a decomposer that read the wrong file could carry it into the
+# batch, which is POSTed where every board member can read it. The token
+# reaches python on stdin, never argv or env; matches print no value.
+if ! printf '%s' "$STRIDE_API_TOKEN" | python3 -c '
+import sys
+token = sys.stdin.read()
+body = open(sys.argv[1], "rb").read()
+if token and (token.encode() in body or token.replace("/", "\\/").encode() in body):
+    sys.exit(1)
+' "$PAYLOAD_FILE"; then
+  echo "stride-ideation: the batch contains the configured Stride API token; nothing was sent. Remove it from $BATCH_PATH and retry." >&2
+  exit 1
+fi
 
 # (9b) The Authorization header reaches curl as a config on its stdin
 # (-K -), written by the printf builtin: no argv, no file. -q must come

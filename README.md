@@ -66,6 +66,7 @@ All agent-facing components are Markdown instructions, not executable code; the 
   experience" below.
 
 /stride-ideation:stridify <path-to-requirements.md> [--goal <name|index>] [--yes]
+/stride-ideation:stridify --batch <path-to-stride-batch.json> [--yes]
   End-to-end pipeline: validates the requirements doc, preflights auth,
   dispatches the decomposer subagent, stamps audit metadata, writes and
   commits a sibling Stride batch JSON, then — after showing you the decomposed
@@ -74,6 +75,8 @@ All agent-facing components are Markdown instructions, not executable code; the 
   --goal scopes the dispatch to one surface from the doc's
   ## Decomposition seams section (see "Resilience model" below).
   --yes / --auto-approve bypasses the approval gate for scripted callers.
+  --batch ships an existing batch JSON (e.g. one you declined at the gate)
+  without decomposing again: validate, preview, approve, POST. No commit.
 ```
 
 The full ideation protocol and decomposer rules live in the plugin itself —
@@ -109,7 +112,7 @@ The full ideation protocol and decomposer rules live in the plugin itself —
 
 ## Preview-and-approval gate on `/stridify` (v0.8.0+)
 
-Before POSTing the generated batch to your Stride instance, `/stride-ideation:stridify` now renders the decomposed goal/task tree — each goal title, its task count, its task titles, and the cross-goal claim order from `decomposition_notes` — and requires your explicit approval. The batch JSON is written and committed to disk *before* the gate, so on decline the command stops cleanly (exit 0) with the audited artifact intact and no POST attempted. Pass `--yes` / `--auto-approve` (explicit only, never inferred) to bypass the gate and preserve the historical fire-and-forget behavior byte-for-byte for scripted callers. The preview reads only the on-disk JSON and never prints the API token.
+Before POSTing the generated batch to your Stride instance, `/stride-ideation:stridify` now renders the decomposed goal/task tree — each goal title, its task count, its task titles, and the cross-goal claim order from `decomposition_notes` — and requires your explicit approval. The batch JSON is written and committed to disk *before* the gate, so on decline the command stops cleanly (exit 0) with the audited artifact intact and no POST attempted; ship it later, unchanged, with `/stride-ideation:stridify --batch <path>`. Pass `--yes` / `--auto-approve` (explicit only, never inferred) to bypass the gate and preserve the historical fire-and-forget behavior byte-for-byte for scripted callers. The preview reads only the on-disk JSON and never prints the API token.
 
 ## Resilience model (v0.7.0+)
 
@@ -120,7 +123,7 @@ Before POSTing the generated batch to your Stride instance, `/stride-ideation:st
 | **Preflight advisory** | Doc enumerates more than 3 surfaces under `## Decomposition seams` AND `--goal` is unset | One-line stderr suggestion to use `--goal`. Never blocks — purely informational. |
 | **Per-goal partitioning** | User invokes with `--goal <name|index>` | Decomposer prompt is scoped to one surface from the doc's `## Decomposition seams` section. Per-goal batches sit side-by-side (`<source-slug>-<goal-slug>-stride-batch.json`); reruns get `-2`/`-3` suffixes. |
 | **Subagent dispatch retry** | `Agent` call fails with HTTP 529 Overloaded, transient network error (DNS / connection refused / timeout / TLS handshake), or an `overloaded` classification string | Up to **3 attempts** with **~30s / ~90s** backoff (total budget ~2 min). Terminal classifications (bad subagent name, contract violation, hard 4xx) fail fast on attempt 1. |
-| **Retry-exhaustion fallback** | 3 consecutive transient failures | Writes a sibling `<source-stem>-decomposer-prompt.md` containing the assembled prompt + verbatim last error + recovery README (paste prompt into a fresh Claude session → save JSON response as target → run `lib/validate_batch.py` → manual POST). **Stride API POST is NOT attempted.** |
+| **Retry-exhaustion fallback** | 3 consecutive transient failures | Writes a sibling `<source-stem>-decomposer-prompt.md` containing the assembled prompt + verbatim last error + recovery README (paste prompt into a fresh Claude session → save JSON response as target → run `/stride-ideation:stridify --batch <path>`, which validates, previews and ships it). **Stride API POST is NOT attempted.** |
 
 **The Stride API POST itself is not retried** — Step 9 fails fast on 4xx/5xx and surfaces the response body verbatim. Per-task idempotency on a partial batch is not guaranteed, so automatic retry could double-create some tasks while leaving others to fail again; the user reads the verbatim body and re-invokes.
 

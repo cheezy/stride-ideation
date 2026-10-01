@@ -148,6 +148,13 @@ assert_fails_with "(b) root 'tasks' alongside 'goals' fails" \
   "$TMP/goals_and_tasks.json" \
   "root has both 'goals' and 'tasks'"
 
+cat > "$TMP/goals_and_extra.json" <<'EOF'
+{"goals": [{"title": "G", "type": "goal", "tasks": [{"title": "t", "type": "work"}]}], "board_id": 9}
+EOF
+assert_fails_with "(b) an unexpected root key alongside 'goals' fails" \
+  "$TMP/goals_and_extra.json" \
+  "root has unexpected key(s) ['board_id'] alongside 'goals'"
+
 # --- (c) empty_goals -------------------------------------------------------
 
 cat > "$TMP/empty_goals.json" <<'EOF'
@@ -553,6 +560,33 @@ for repo_fixture in "$SCRIPT_DIR"/../fixtures/*-stride-batch.json; do
   assert_ok_silent "repo fixture passes silently: $(basename "$repo_fixture")" \
     "$repo_fixture"
 done
+
+# --- advisory: credential-shaped strings ------------------------------------
+
+cat > "$TMP/secret_key.json" <<'EOF'
+{"goals": [{"title": "G", "type": "goal", "tasks": [{"title": "t", "type": "work", "testing_strategy": {"stride_prod_ABCDEFGH12345678": "x"}}]}]}
+EOF
+KEY_OUT="$(python3 "$VALIDATOR" "$TMP/secret_key.json" 2>&1)"
+if printf '%s' "$KEY_OUT" | grep -qF 'testing_strategy.<redacted-key> looks like it contains a credential' \
+   && ! printf '%s' "$KEY_OUT" | grep -q 'ABCDEFGH12345678'; then
+  PASS=$(( PASS + 1 )); printf 'PASS  %s\n' "advisory: a credential-shaped key is flagged with the key redacted"
+else
+  FAIL=$(( FAIL + 1 )); printf 'FAIL  %s\n      %s\n' "advisory: credential key" "$KEY_OUT"
+fi
+
+cat > "$TMP/secretish.json" <<'EOF'
+{"goals": [{"title": "G", "type": "goal", "tasks": [{"title": "t", "type": "work", "description": "use stride_dev_AbCdEfGh12345678 here", "pitfalls": ["send Authorization: Bearer abcdefgh12345678"]}]}]}
+EOF
+SECRET_OUT="$(python3 "$VALIDATOR" "$TMP/secretish.json" 2>&1)"
+SECRET_RC=$?
+if [ "$SECRET_RC" -eq 0 ] \
+   && printf '%s' "$SECRET_OUT" | grep -qF 'goals[0].tasks[0].description looks like it contains a credential' \
+   && printf '%s' "$SECRET_OUT" | grep -qF 'goals[0].tasks[0].pitfalls[0] looks like it contains a credential' \
+   && ! printf '%s' "$SECRET_OUT" | grep -qE 'AbCdEfGh12345678|abcdefgh12345678'; then
+  PASS=$(( PASS + 1 )); printf 'PASS  %s\n' "advisory: credential-shaped strings are warned about by path, never by value (exit 0)"
+else
+  FAIL=$(( FAIL + 1 )); printf 'FAIL  %s\n      %s\n' "advisory: credential warning" "rc=$SECRET_RC out=$SECRET_OUT"
+fi
 
 # --- summary --------------------------------------------------------------
 
