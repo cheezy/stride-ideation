@@ -291,6 +291,23 @@ S="$TMP/s"
 run "$S/Step_2-1.sh" REQUIREMENTS_PATH "$REQ_REL" GOAL_ARG ''
 check "stridify Step 2 advisory: runs in a fresh shell" 0
 
+# The advisory counts exactly the seams --goal accepts (D313).
+printf '# D\n\n## Decomposition seams\n\n- **A** x\n- **B** x\n- **C** x\n- **D** x\n' > "$REPO/bullets-requirements.md"
+run "$S/Step_2-1.sh" REQUIREMENTS_PATH bullets-requirements.md GOAL_ARG ''
+check "stridify Step 2 advisory: runs on a bulleted-seams doc" 0
+if printf '%s' "$ERR" | grep -q 'enumerates 4 surfaces'; then
+  pass "stridify Step 2 advisory: four bulleted seams trigger it with the resolvable count"
+else
+  fail "stridify Step 2 advisory: bulleted seams" "$ERR"
+fi
+printf '# D\n\n## Decomposition seams\n\n1. **A** x\n2. **B** x\n3. **C** x\n\nNotes:\n- **N1** x\n- **N2** x\n- **N3** x\n- **N4** x\n' > "$REPO/mixed-requirements.md"
+run "$S/Step_2-1.sh" REQUIREMENTS_PATH mixed-requirements.md GOAL_ARG ''
+if [ "$RC" -eq 0 ] && [ -z "$ERR" ]; then
+  pass "stridify Step 2 advisory: secondary bullets under three numbered seams stay quiet"
+else
+  fail "stridify Step 2 advisory: mixed doc" "rc=$RC; $ERR"
+fi
+
 run "$S/Step_2b-1.sh" REQUIREMENTS_PATH "$REQ_REL" GOAL_ARG '2'
 check "stridify Step 2b: resolves --goal in a fresh shell" 0
 GOAL_INDEX="$(carry GOAL_INDEX)"; GOAL_SLUG="$(carry GOAL_SLUG)"

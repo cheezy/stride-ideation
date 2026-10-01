@@ -44,44 +44,33 @@ Before doing any expensive work, the command must confirm the input is a real, p
 
    And exit non-zero. Do NOT proceed with a partial doc — the decomposer subagent's output quality depends on every section being substantive.
 
-4. **Advisory: large-decomposition warning (no exit, never blocks).** If the doc contains a `## Decomposition seams` section AND `GOAL_ARG` is unset (the user did NOT invoke with `--goal`), count surface enumerations under that heading. If the count is **greater than 3**, print a single advisory line to stderr and continue execution — this is a UX hint, not a gate. When `--goal` IS set (per-goal mode), do NOT print this advisory — the user has already partitioned and emitting noise on top is counter-productive. When the seams section is absent or enumerates ≤3 surfaces, also skip the advisory.
+4. **Advisory: large-decomposition warning (never blocks).** If the doc contains a `## Decomposition seams` section AND `GOAL_ARG` is unset (the user did NOT invoke with `--goal`), count the seams under that heading. If the count is **greater than 3**, print a single advisory line to stderr and continue execution — this is a UX hint, not a gate. When `--goal` IS set (per-goal mode), do NOT print this advisory — the user has already partitioned and emitting noise on top is counter-productive. When the seams section is absent or enumerates ≤3 surfaces, also skip the advisory.
 
-   **Surface-count heuristic.** Inside the `## Decomposition seams` section body (from the heading exclusive to the next `^## ` heading or EOF), count lines that match any of these three shapes — surface enumerators are intentionally permissive because the section is freeform:
+   **The count is exactly the set of seams `--goal` accepts.** It comes from `sti_extract_seams`, the same parser Step 2b resolves `--goal` against and Step 7e scopes with, so an advisory that recommends `--goal` can always be followed with `--goal 1` … `--goal N`. One item shape counts per section, by precedence:
 
-   | Shape | Pattern |
-   |---|---|
-   | Level-3 heading | `^### ` |
-   | Numbered list item | `^[[:space:]]*[0-9]+\.[[:space:]]+` |
-   | Bulleted list item | `^[[:space:]]*[-*][[:space:]]+` |
+   | Shape | Item start | Used when |
+   |---|---|---|
+   | Numbered bold item | `1. **Name** …` | any numbered bold item exists |
+   | Bulleted bold item | `- **Name** …` (top level) | no numbered bold items |
+   | Level-3 heading | `### Name` | neither of the above |
 
-   Count each shape independently, then take the **MAX** across the three. The max-of-shapes rule is friendlier than sum-of-shapes when a section mixes a primary numbered list of surfaces with a secondary bulleted list of cross-cutting notes (e.g., "Shared contract" bullets, "Sequencing & dependencies" bullets) — those secondary bullets should not inflate the surface count.
+   So a numbered list's secondary cross-cutting bullets (e.g., "Shared contract" or "Sequencing & dependencies" notes) never inflate the count, and a section written as bullets or headings is countable and addressable just like a numbered one.
 
    ```bash
    # Carried forward: REQUIREMENTS_PATH, GOAL_ARG (empty when --goal was absent)
    : "${REQUIREMENTS_PATH:?stride-ideation: REQUIREMENTS_PATH was not carried forward from Step 1}"
    : "${GOAL_ARG?stride-ideation: GOAL_ARG was not carried forward from Step 1}"
+   [ -n "${CLAUDE_PLUGIN_ROOT}" ] || { echo "stride-ideation: CLAUDE_PLUGIN_ROOT is not set — run this from the installed stride-ideation plugin" >&2; exit 1; }
+   . "${CLAUDE_PLUGIN_ROOT}/lib/filename.sh" || exit 1
    if [ -z "${GOAL_ARG:-}" ] && grep -qE '^## Decomposition seams[[:space:]]*$' "$REQUIREMENTS_PATH"; then
-     SEAM_COUNT="$(awk '
-       /^## Decomposition seams[[:space:]]*$/ { in_section=1; next }
-       in_section && /^## / { in_section=0 }
-       in_section && /^### / { h3++ }
-       in_section && /^[[:space:]]*[0-9]+\.[[:space:]]+/ { num++ }
-       in_section && /^[[:space:]]*[-*][[:space:]]+/ { bul++ }
-       END {
-         h3 = h3 + 0; num = num + 0; bul = bul + 0
-         m = h3
-         if (num > m) m = num
-         if (bul > m) m = bul
-         print m
-       }
-     ' "$REQUIREMENTS_PATH")"
+     SEAM_COUNT="$(sti_extract_seams "$REQUIREMENTS_PATH" | grep -c '')"
      if [ "$SEAM_COUNT" -gt 3 ]; then
        echo "stride-ideation: requirements doc enumerates $SEAM_COUNT surfaces under Decomposition seams. Consider running /stridify --goal <name|index> $SEAM_COUNT times to reduce subagent-dispatch failure risk on large decompositions. Continuing with all-goals mode." >&2
      fi
    fi
    ```
 
-   The advisory **never** exits non-zero — it is informational. Users who genuinely want all-goals mode on a 7-surface doc see the line once at the top of the run and ignore it; that is a deliberate trade-off, not a defect.
+   The advisory itself **never** exits non-zero — it is informational; the fragment stops only on the unset-plugin-root guard every fragment shares (see Running the bash fragments). Users who genuinely want all-goals mode on a 7-surface doc see the line once at the top of the run and ignore it; that is a deliberate trade-off, not a defect.
 
 ### Step 2b: Resolve `--goal` against `## Decomposition seams` (only if `--goal` was set)
 
@@ -141,7 +130,7 @@ fi
 **Pitfalls honored here:**
 - `--goal` is **not** silently ignored on no-match — every miss raises a non-zero exit with the verbatim "did not match" message and a printed list of the actual seams that ARE present.
 - The seams section is **not** required in all docs — `GOAL_ARG` being unset means this step is a no-op. Only when the user explicitly opted into per-goal mode does the absence become an error.
-- The parser does not couple to any markdown shape beyond "level-2 heading `## Decomposition seams` followed by a numbered list of `<N>. **Name** ...` items." Intro prose, trailing prose, and item bodies on subsequent lines are all tolerated — only the bold-named first line of each numbered item is used.
+- The parser does not couple to any markdown shape beyond "level-2 heading `## Decomposition seams` followed by numbered `<N>. **Name** ...` items, or else top-level bulleted `- **Name** ...` items, or else `### Name` headings" (one shape per section, in that precedence — the Step 2 table). Intro prose, trailing prose, and item bodies on subsequent lines are all tolerated — only each item's name is used.
 
 ### Step 3: Preflight auth from `.stride_auth.md`
 
@@ -324,7 +313,7 @@ done
 
 When `GOAL_SLUG` is set, build a scoped prompt in two layers:
 
-1. **Doc surgery.** Use `sti_scope_doc_to_seam` from `lib/filename.sh` to produce a copy of the doc with its `## Decomposition seams` section pruned to keep only the matched seam item. Everything OUTSIDE the seams section (the seven gated sections — Problem, Goal, Outcome, Assumptions, Constraints, Non-goals, Success metrics — plus any Sketch or Open questions content) is preserved verbatim, so the subagent retains the full shared context. Inside the section, intro and trailing prose are dropped and replaced with a one-line notice — only the matched numbered item's lines (start line + any continuation lines until the next item or the section's end) remain.
+1. **Doc surgery.** Use `sti_scope_doc_to_seam` from `lib/filename.sh` to produce a copy of the doc with its `## Decomposition seams` section pruned to keep only the matched seam item. Everything OUTSIDE the seams section (the seven gated sections — Problem, Goal, Outcome, Assumptions, Constraints, Non-goals, Success metrics — plus any Sketch or Open questions content) is preserved verbatim, so the subagent retains the full shared context. Inside the section, intro and trailing prose are dropped and replaced with a one-line notice — only the matched item's lines (start line + any continuation lines until the next item or the section's end) remain. It selects the item by the same index `sti_extract_seams` assigned in Step 2b.
 
    ```bash
    # Carried forward: REQUIREMENTS_PATH, GOAL_INDEX (Step 2b)
